@@ -12,7 +12,82 @@ import { z } from 'zod';
 export type AgentRunner = unknown;
 
 // @public
+export class AgentRuntimeError extends Error {
+    constructor(message: string, code: string, cause?: unknown | undefined);
+    // (undocumented)
+    readonly cause?: unknown | undefined;
+    // (undocumented)
+    readonly code: string;
+}
+
+// @public
 export function assertContract<T>(schema: z.ZodType<T>): Contract<T>;
+
+// @public
+export interface AssistantTurn {
+    // (undocumented)
+    content: string;
+    // (undocumented)
+    reasoning?: string;
+    // (undocumented)
+    role: "assistant";
+    // (undocumented)
+    timestamp: number;
+    // (undocumented)
+    toolCalls?: ToolCallRequest[];
+}
+
+// @public (undocumented)
+export type BudgetConfig = z.infer<typeof BudgetConfigSchema>;
+
+// @public
+export const BudgetConfigSchema: z.ZodObject<{
+    maxCogStepN: z.ZodDefault<z.ZodNumber>;
+    wallTimeCeilMs: z.ZodDefault<z.ZodNumber>;
+    hardIntentCount: z.ZodDefault<z.ZodNumber>;
+    maxTokensPerStep: z.ZodDefault<z.ZodNumber>;
+}, "strip", z.ZodTypeAny, {
+    maxCogStepN: number;
+    wallTimeCeilMs: number;
+    hardIntentCount: number;
+    maxTokensPerStep: number;
+}, {
+    maxCogStepN?: number | undefined;
+    wallTimeCeilMs?: number | undefined;
+    hardIntentCount?: number | undefined;
+    maxTokensPerStep?: number | undefined;
+}>;
+
+// @public
+export class BudgetExhaustedError extends AgentRuntimeError {
+    constructor(budgetType: "wallTime" | "cogSteps" | "intentCount", consumed: number, limit: number, cause?: unknown);
+    // (undocumented)
+    readonly budgetType: "wallTime" | "cogSteps" | "intentCount";
+    // (undocumented)
+    readonly consumed: number;
+    // (undocumented)
+    readonly limit: number;
+}
+
+// @public
+export class CognitiveOverloadError extends AgentRuntimeError {
+    constructor(stepsExecuted: number, limit: number, cause?: unknown);
+    // (undocumented)
+    readonly limit: number;
+    // (undocumented)
+    readonly stepsExecuted: number;
+}
+
+// @public
+export class ConcurrencyDeniedError extends AgentRuntimeError {
+    constructor(resourceClass: string, requested: number, available: number, cause?: unknown);
+    // (undocumented)
+    readonly available: number;
+    // (undocumented)
+    readonly requested: number;
+    // (undocumented)
+    readonly resourceClass: string;
+}
 
 // Warning: (ae-internal-missing-underscore) The name "ConcurrencyGate" should be prefixed with an underscore because the declaration is marked as @internal
 //
@@ -38,10 +113,226 @@ export interface Contract<T> {
     };
 }
 
+// @public
+export class DisputeResolutionError extends AgentRuntimeError {
+    constructor(tier: 1 | 2 | 3 | 4, reason: string, cause?: unknown);
+    // (undocumented)
+    readonly reason: string;
+    // (undocumented)
+    readonly tier: 1 | 2 | 3 | 4;
+}
+
+// @public
+export interface ExecutionStep {
+    // (undocumented)
+    assistantTurn: AssistantTurn;
+    // (undocumented)
+    completedAt: number;
+    // (undocumented)
+    startedAt: number;
+    // (undocumented)
+    stepIndex: number;
+    // (undocumented)
+    toolResults: ToolResult[];
+}
+
+// @public (undocumented)
+export type FinalReport = z.infer<typeof FinalReportSchema>;
+
+// @public
+export const FinalReportContract: Contract<FinalReport>;
+
+// @public
+export const FinalReportSchema: z.ZodObject<{
+    status: z.ZodEnum<["completed", "failed", "cancelled", "escalated"]>;
+    objective: z.ZodString;
+    executiveSummary: z.ZodString;
+    findings: z.ZodArray<z.ZodObject<{
+        claim: z.ZodString;
+        evidenceRef: z.ZodString;
+        confidence: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        claim: string;
+        evidenceRef: string;
+        confidence: number;
+    }, {
+        claim: string;
+        evidenceRef: string;
+        confidence: number;
+    }>, "many">;
+    disputes: z.ZodArray<z.ZodObject<{
+        tier: z.ZodNumber;
+        parties: z.ZodArray<z.ZodString, "many">;
+        resolution: z.ZodString;
+        resolved: z.ZodBoolean;
+    }, "strip", z.ZodTypeAny, {
+        tier: number;
+        parties: string[];
+        resolution: string;
+        resolved: boolean;
+    }, {
+        tier: number;
+        parties: string[];
+        resolution: string;
+        resolved: boolean;
+    }>, "many">;
+    metrics: z.ZodObject<{
+        totalSteps: z.ZodNumber;
+        totalToolCalls: z.ZodNumber;
+        totalWallTimeMs: z.ZodNumber;
+        totalTokensIn: z.ZodNumber;
+        totalTokensOut: z.ZodNumber;
+        sentinelAcquisitions: z.ZodNumber;
+        sentinelRejections: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        totalSteps: number;
+        totalToolCalls: number;
+        totalWallTimeMs: number;
+        totalTokensIn: number;
+        totalTokensOut: number;
+        sentinelAcquisitions: number;
+        sentinelRejections: number;
+    }, {
+        totalSteps: number;
+        totalToolCalls: number;
+        totalWallTimeMs: number;
+        totalTokensIn: number;
+        totalTokensOut: number;
+        sentinelAcquisitions: number;
+        sentinelRejections: number;
+    }>;
+    seal: z.ZodObject<{
+        timestamp: z.ZodString;
+        hash: z.ZodString;
+        runtimeVersion: z.ZodString;
+    }, "strip", z.ZodTypeAny, {
+        timestamp: string;
+        hash: string;
+        runtimeVersion: string;
+    }, {
+        timestamp: string;
+        hash: string;
+        runtimeVersion: string;
+    }>;
+}, "strip", z.ZodTypeAny, {
+    status: "completed" | "failed" | "cancelled" | "escalated";
+    objective: string;
+    executiveSummary: string;
+    findings: {
+        claim: string;
+        evidenceRef: string;
+        confidence: number;
+    }[];
+    disputes: {
+        tier: number;
+        parties: string[];
+        resolution: string;
+        resolved: boolean;
+    }[];
+    metrics: {
+        totalSteps: number;
+        totalToolCalls: number;
+        totalWallTimeMs: number;
+        totalTokensIn: number;
+        totalTokensOut: number;
+        sentinelAcquisitions: number;
+        sentinelRejections: number;
+    };
+    seal: {
+        timestamp: string;
+        hash: string;
+        runtimeVersion: string;
+    };
+}, {
+    status: "completed" | "failed" | "cancelled" | "escalated";
+    objective: string;
+    executiveSummary: string;
+    findings: {
+        claim: string;
+        evidenceRef: string;
+        confidence: number;
+    }[];
+    disputes: {
+        tier: number;
+        parties: string[];
+        resolution: string;
+        resolved: boolean;
+    }[];
+    metrics: {
+        totalSteps: number;
+        totalToolCalls: number;
+        totalWallTimeMs: number;
+        totalTokensIn: number;
+        totalTokensOut: number;
+        sentinelAcquisitions: number;
+        sentinelRejections: number;
+    };
+    seal: {
+        timestamp: string;
+        hash: string;
+        runtimeVersion: string;
+    };
+}>;
+
+// @public (undocumented)
+export type GrantLevel = z.infer<typeof GrantLevelSchema>;
+
+// @public
+export const GrantLevelSchema: z.ZodEnum<["auto", "acknowledged", "acknowledged-privileged", "manual"]>;
+
+// @public
+export class HumanGateTimeoutError extends AgentRuntimeError {
+    constructor(toolName: string, timeoutMs: number, cause?: unknown);
+    // (undocumented)
+    readonly timeoutMs: number;
+    // (undocumented)
+    readonly toolName: string;
+}
+
+// @public
+export interface HumanProtocolRequest {
+    // (undocumented)
+    context: {
+        objective: string;
+        stepIndex: number;
+        previousAttempts: number;
+    };
+    // (undocumented)
+    lease: ResourceLease;
+    // (undocumented)
+    toolCall: ToolCallRequest;
+    // (undocumented)
+    toolDefinition: ToolDefinition;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "Metrics" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal (undocumented)
 export type Metrics = unknown;
+
+// @public (undocumented)
+export type ObservabilityEvent = z.infer<typeof ObservabilityEventSchema>;
+
+// @public
+export const ObservabilityEventSchema: z.ZodObject<{
+    name: z.ZodString;
+    payload: z.ZodUnknown;
+    timestamp: z.ZodNumber;
+    stepIndex: z.ZodOptional<z.ZodNumber>;
+    traceId: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    timestamp: number;
+    name: string;
+    payload?: unknown;
+    stepIndex?: number | undefined;
+    traceId?: string | undefined;
+}, {
+    timestamp: number;
+    name: string;
+    payload?: unknown;
+    stepIndex?: number | undefined;
+    traceId?: string | undefined;
+}>;
 
 // Warning: (ae-internal-missing-underscore) The name "OllamaThoughtProcess" should be prefixed with an underscore because the declaration is marked as @internal
 //
@@ -53,15 +344,132 @@ export type OllamaThoughtProcess = unknown;
 // @internal (undocumented)
 export type Resolver = unknown;
 
+// @public (undocumented)
+export type ResourceClass = z.infer<typeof ResourceClassSchema>;
+
+// @public
+export const ResourceClassSchema: z.ZodEnum<["local-cpu", "local-gpu", "external-network", "external-database", "filesystem-read", "filesystem-write"]>;
+
+// @public
+export interface ResourceLease {
+    // (undocumented)
+    acquiredAt: number;
+    // (undocumented)
+    expiresAt?: number;
+    // (undocumented)
+    release: () => Promise<void>;
+    // (undocumented)
+    resourceClass: ResourceClass;
+    // (undocumented)
+    units: number;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "Sealer" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal (undocumented)
 export type Sealer = unknown;
 
+// @public
+export interface ToolCallRequest {
+    // (undocumented)
+    arguments: Record<string, unknown>;
+    // (undocumented)
+    id: string;
+    // (undocumented)
+    name: string;
+}
+
+// @public
+export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<string, unknown>> {
+    // (undocumented)
+    argsShape: Contract<TArgs>;
+    // (undocumented)
+    caption: string;
+    // (undocumented)
+    effects: ToolEffect;
+    // (undocumented)
+    grantLevel: GrantLevel;
+    // (undocumented)
+    handle: string;
+    // (undocumented)
+    invoke: (args: TArgs, lease: ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
+    // (undocumented)
+    maxOutputChars?: number;
+    // (undocumented)
+    resourceClass: ResourceClass;
+    // (undocumented)
+    timeoutMs?: number;
+}
+
+// @public
+export const ToolDefinitionSchema: z.ZodObject<{
+    handle: z.ZodString;
+    caption: z.ZodString;
+    argsShape: z.ZodType<Contract<unknown>, z.ZodTypeDef, Contract<unknown>>;
+    resourceClass: z.ZodEnum<["local-cpu", "local-gpu", "external-network", "external-database", "filesystem-read", "filesystem-write"]>;
+    effects: z.ZodDefault<z.ZodEnum<["pure", "idempotent", "transactional", "destructive"]>>;
+    grantLevel: z.ZodDefault<z.ZodEnum<["auto", "acknowledged", "acknowledged-privileged", "manual"]>>;
+    maxOutputChars: z.ZodOptional<z.ZodNumber>;
+    timeoutMs: z.ZodOptional<z.ZodNumber>;
+}, "strip", z.ZodTypeAny, {
+    handle: string;
+    caption: string;
+    argsShape: Contract<unknown>;
+    resourceClass: "local-cpu" | "local-gpu" | "external-network" | "external-database" | "filesystem-read" | "filesystem-write";
+    effects: "pure" | "idempotent" | "transactional" | "destructive";
+    grantLevel: "auto" | "acknowledged" | "acknowledged-privileged" | "manual";
+    maxOutputChars?: number | undefined;
+    timeoutMs?: number | undefined;
+}, {
+    handle: string;
+    caption: string;
+    argsShape: Contract<unknown>;
+    resourceClass: "local-cpu" | "local-gpu" | "external-network" | "external-database" | "filesystem-read" | "filesystem-write";
+    effects?: "pure" | "idempotent" | "transactional" | "destructive" | undefined;
+    grantLevel?: "auto" | "acknowledged" | "acknowledged-privileged" | "manual" | undefined;
+    maxOutputChars?: number | undefined;
+    timeoutMs?: number | undefined;
+}>;
+
+// @public (undocumented)
+export type ToolEffect = z.infer<typeof ToolEffectSchema>;
+
+// @public
+export const ToolEffectSchema: z.ZodEnum<["pure", "idempotent", "transactional", "destructive"]>;
+
+// @public
+export class ToolExecutionError extends AgentRuntimeError {
+    constructor(toolName: string, args: unknown, originalError: Error);
+    // (undocumented)
+    readonly args: unknown;
+    // (undocumented)
+    readonly originalError: Error;
+    // (undocumented)
+    readonly toolName: string;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "ToolkitCatalogue" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal (undocumented)
 export type ToolkitCatalogue = unknown;
+
+// @public
+export interface ToolResult {
+    // (undocumented)
+    error?: string;
+    // (undocumented)
+    executionTimeMs: number;
+    // (undocumented)
+    name: string;
+    // (undocumented)
+    output: unknown;
+    // (undocumented)
+    success: boolean;
+    // (undocumented)
+    toolCallId: string;
+    // (undocumented)
+    trustLevel: "verified" | "trusted" | "unverified";
+}
 
 // (No @packageDocumentation comment for this package)
 
