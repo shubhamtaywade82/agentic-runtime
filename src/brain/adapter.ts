@@ -20,6 +20,7 @@ interface SDKMessage {
 interface SDKChatResponse {
   message?: SDKMessage;
   messages?: SDKMessage[];
+  done?: boolean;
   done_reason?: string;
   prompt_eval_count?: number;
   eval_count?: number;
@@ -30,6 +31,7 @@ interface SDKChatResponse {
 /**
  * Coerce raw tool arguments to Record<string, unknown>.
  * Handles stringified JSON and malformed payloads.
+ * Throws InferenceQualityError on malformed payloads (not transport).
  */
 function coerce(rawArgs: unknown): Record<string, unknown> {
   if (typeof rawArgs === "string") {
@@ -43,6 +45,13 @@ function coerce(rawArgs: unknown): Record<string, unknown> {
     return rawArgs as Record<string, unknown>;
   }
   throw new InferenceQualityError("Non-object tool arguments.", ["non_object_args"]);
+}
+
+/**
+ * Convert nanoseconds to milliseconds (native Ollama durations are in ns).
+ */
+function nsToMs(v?: number): number {
+  return typeof v === "number" && v >= 0 ? v / 1_000_000 : -1;
 }
 
 /**
@@ -81,8 +90,6 @@ export class OllamaThoughtProcess implements ThoughtProcess {
   }
 
   async digest(messages: ChatMsg[], schedule: RequestSchedule): Promise<AssistantTurn> {
-    const startTime = performance.now();
-
     const options: Record<string, unknown> = {};
     if (schedule.entropyOverride !== undefined) {
       options.temperature = schedule.entropyOverride;
@@ -119,6 +126,7 @@ export class OllamaThoughtProcess implements ThoughtProcess {
       payload.format = schedule.constrain.subjectOutputSchema;
     }
 
+    // Keep-alive to prevent reload latency spikes mid-loop
     if (schedule.idleLiveSeconds) {
       payload.keep_alive = schedule.idleLiveSeconds;
     } else if (this.defaults.idleLiveSeconds) {
@@ -133,46 +141,58 @@ export class OllamaThoughtProcess implements ThoughtProcess {
 
     try {
       // Call SDK - cast payload to satisfy SDK overloads
-      const response = await this.remote.chat(payload as Record<string, unknown>);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const response = await this.remote.chat(payload as any);
       
-      const durationMs = performance.now() - startTime;
-
       // Handle response with type assertions for SDK version flexibility
       const r = response as unknown as SDKChatResponse;
       
-      // Extract assistant message
+      // Extract assistant message - use findLast semantics (reverse search)
+      // to get the most recent assistant turn, not a stale one from history
       let assistantMsg: SDKMessage | null = null;
-      let doneReason: string | undefined;
+      const doneReason = r.done_reason;
       
-      if (r.messages && Array.isArray(r.messages)) {
-        const msgs = r.messages;
-        assistantMsg = msgs
-          ?.filter((m: SDKMessage) => m.role === "assistant")
-          .pop() ?? msgs?.[msgs.length - 1] ?? null;
-        doneReason = r.done_reason;
-      } else if (r.message) {
-        assistantMsg = r.message;
-        doneReason = r.done_reason;
+      const msgs: SDKMessage[] = Array.isArray(r.messages)
+        ? r.messages
+        : r.message ? [{ ...r.message }] : [];
+      
+      // findLast: search from end to get most recent assistant message
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const msg = msgs[i];
+        if (msg?.role === "assistant") {
+          assistantMsg = msg;
+          break;
+        }
       }
 
       if (!assistantMsg) {
         throw new InferenceQualityError("No assistant message in response.", ["missing_assistant_message"]);
       }
 
+      // D1: Detect truncation via done_reason = "length"
+      // The native daemon emits done_reason ∈ { "stop" | "length" | "load" }
+      const truncated = r.done === true && doneReason === "length";
+
       const toolCalls = assistantMsg.tool_calls ?? [];
-      const finishReason = doneReason ?? (toolCalls.length > 0 ? "tool_calls" : "stop");
       
+      // D1: Safety policy - NEVER execute fragments from truncated emission
+      // Truncated argument JSON would cause Zod rejection downstream,
+      // misdiagnosed as parameter mistake instead of generation-ceiling event
+      const finalToolCalls = truncated ? [] : toolCalls;
+
       // Map done_reason to finishTag
       let finishTag: AssistantTurn["finishTag"] = "stop";
-      if (toolCalls.length > 0) {
+      if (truncated) {
+        finishTag = "length_truncated";
+      } else if (finalToolCalls.length > 0) {
         finishTag = "tool_calls";
-      } else if (finishReason === "length") {
+      } else if (doneReason === "length") {
         finishTag = "length_truncated";
       }
 
       return {
         content: assistantMsg.content ?? "",
-        toolCalls: toolCalls.map((tc: { id?: string; function?: { name?: string; arguments?: unknown } }, i: number) => ({
+        toolCalls: finalToolCalls.map((tc: { id?: string; function?: { name?: string; arguments?: unknown } }, i: number) => ({
           id: tc.id ?? `${i}-${crypto.randomUUID()}`,
           name: tc.function?.name ?? `unknown_${i}`,
           arguments: coerce(tc.function?.arguments ?? {}),
@@ -181,8 +201,8 @@ export class OllamaThoughtProcess implements ThoughtProcess {
         usage: {
           promptTokens: r.prompt_eval_count ?? -1,
           evalTokens: r.eval_count ?? -1,
-          totalDurationMs: durationMs,
-          loadDurationMs: r.load_duration ?? -1,
+          totalDurationMs: nsToMs(r.total_duration),
+          loadDurationMs: nsToMs(r.load_duration),
         },
       };
     } catch (err) {

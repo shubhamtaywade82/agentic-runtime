@@ -562,8 +562,10 @@ export interface ThoughtProcess {
     readonly identityTag: string;
 }
 
+// Warning: (ae-forgotten-export) The symbol "AnyZodType" needs to be exported by the entry point index.d.ts
+//
 // @public
-export function toJsonSchema(schema: Contract<unknown> | ZodType<any, any, any>): JSONSchema7;
+export function toJsonSchema(schema: Contract<unknown> | AnyZodType): JSONSchema7;
 
 // @public
 export interface ToolCallRequest {
@@ -581,12 +583,12 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
     argsShape: Contract<TArgs>;
     // (undocumented)
     caption: string;
-    // (undocumented)
-    effects: ToolEffect;
+    effects: "pure" | "transactional";
     // (undocumented)
     grantLevel: GrantLevel;
     // (undocumented)
     handle: string;
+    idempotencyKey?: (args: TArgs) => string;
     // (undocumented)
     invoke: (args: TArgs, lease: SandboxLease | ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
     // (undocumented)
@@ -604,7 +606,7 @@ export const ToolDefinitionSchema: z.ZodObject<{
     caption: z.ZodString;
     argsShape: z.ZodType<Contract<unknown>, z.ZodTypeDef, Contract<unknown>>;
     resourceClass: z.ZodEnum<["local-cpu", "local-gpu", "external-network", "external-database", "filesystem-read", "filesystem-write"]>;
-    effects: z.ZodDefault<z.ZodEnum<["pure", "idempotent", "transactional", "destructive"]>>;
+    effects: z.ZodDefault<z.ZodEnum<["pure", "transactional"]>>;
     grantLevel: z.ZodDefault<z.ZodEnum<["auto", "acknowledged", "acknowledged-privileged", "manual"]>>;
     maxOutputChars: z.ZodOptional<z.ZodNumber>;
     timeoutMs: z.ZodOptional<z.ZodNumber>;
@@ -613,7 +615,7 @@ export const ToolDefinitionSchema: z.ZodObject<{
     caption: string;
     argsShape: Contract<unknown>;
     resourceClass: "local-cpu" | "local-gpu" | "external-network" | "external-database" | "filesystem-read" | "filesystem-write";
-    effects: "pure" | "idempotent" | "transactional" | "destructive";
+    effects: "pure" | "transactional";
     grantLevel: "auto" | "acknowledged" | "acknowledged-privileged" | "manual";
     maxOutputChars?: number | undefined;
     timeoutMs?: number | undefined;
@@ -622,7 +624,7 @@ export const ToolDefinitionSchema: z.ZodObject<{
     caption: string;
     argsShape: Contract<unknown>;
     resourceClass: "local-cpu" | "local-gpu" | "external-network" | "external-database" | "filesystem-read" | "filesystem-write";
-    effects?: "pure" | "idempotent" | "transactional" | "destructive" | undefined;
+    effects?: "pure" | "transactional" | undefined;
     grantLevel?: "auto" | "acknowledged" | "acknowledged-privileged" | "manual" | undefined;
     maxOutputChars?: number | undefined;
     timeoutMs?: number | undefined;
@@ -632,7 +634,7 @@ export const ToolDefinitionSchema: z.ZodObject<{
 export type ToolEffect = z.infer<typeof ToolEffectSchema>;
 
 // @public
-export const ToolEffectSchema: z.ZodEnum<["pure", "idempotent", "transactional", "destructive"]>;
+export const ToolEffectSchema: z.ZodEnum<["pure", "transactional"]>;
 
 // @public
 export class ToolExecutionError extends AgentRuntimeError {

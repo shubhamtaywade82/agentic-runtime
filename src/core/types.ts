@@ -348,7 +348,7 @@ export type ResourceClass = z.infer<typeof ResourceClassSchema>;
  * Tool effect classification for idempotency and retry semantics.
  * @public
  */
-export const ToolEffectSchema = z.enum(["pure", "idempotent", "transactional", "destructive"]);
+export const ToolEffectSchema = z.enum(["pure", "transactional"]);
 
 /** @public */
 export type ToolEffect = z.infer<typeof ToolEffectSchema>;
@@ -386,13 +386,23 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
   caption: string;
   argsShape: Contract<TArgs>;
   resourceClass: ResourceClass;
-  effects: ToolEffect;
+  /** 
+   * Effect classification determines retry safety:
+   * - "pure": No side effects, safe to re-dispatch blindly
+   * - "transactional": Side effects with idempotency key, safe to re-dispatch with same key
+   */
+  effects: "pure" | "transactional";
   grantLevel: GrantLevel;
   maxOutputChars?: number;
   timeoutMs?: number;
   invoke: (args: TArgs, lease: SandboxLease | ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
   /** Optional projection to strip noise before persisting digests. */
   reflect?: (raw: ToolResult) => unknown;
+  /**
+   * Required for "transactional" tools. Generates a deterministic key from arguments
+   * to enable safe re-dispatch (e.g., HTTP POST with same idempotency key).
+   */
+  idempotencyKey?: (args: TArgs) => string;
 }
 
 /**
