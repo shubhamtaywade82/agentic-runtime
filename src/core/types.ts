@@ -390,7 +390,9 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
   grantLevel: GrantLevel;
   maxOutputChars?: number;
   timeoutMs?: number;
-  invoke: (args: TArgs, lease: ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
+  invoke: (args: TArgs, lease: SandboxLease | ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
+  /** Optional projection to strip noise before persisting digests. */
+  reflect?: (raw: ToolResult) => unknown;
 }
 
 /**

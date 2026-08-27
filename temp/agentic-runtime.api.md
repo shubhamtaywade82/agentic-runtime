@@ -28,13 +28,11 @@ export interface AssistantTurn {
     // (undocumented)
     content: string;
     // (undocumented)
-    reasoning?: string;
+    finishTag: "stop" | "tool_calls" | "length_truncated";
     // (undocumented)
-    role: "assistant";
+    toolCalls: ToolCallRequest[];
     // (undocumented)
-    timestamp: number;
-    // (undocumented)
-    toolCalls?: ToolCallRequest[];
+    usage: TurnUsage | null;
 }
 
 // @public (undocumented)
@@ -60,13 +58,33 @@ export const BudgetConfigSchema: z.ZodObject<{
 
 // @public
 export class BudgetExhaustedError extends AgentRuntimeError {
-    constructor(budgetType: "wallTime" | "cogSteps" | "intentCount", consumed: number, limit: number, cause?: unknown);
-    // (undocumented)
-    readonly budgetType: "wallTime" | "cogSteps" | "intentCount";
+    constructor(dimension: "steps" | "wallclock" | "tokens" | "intents", consumed: number, limit: number);
     // (undocumented)
     readonly consumed: number;
     // (undocumented)
+    readonly dimension: "steps" | "wallclock" | "tokens" | "intents";
+    // (undocumented)
     readonly limit: number;
+}
+
+// @public
+export interface CertifiedContractEnvelope {
+    // (undocumented)
+    attempt: number;
+    // (undocumented)
+    certifiedAt: number;
+    // (undocumented)
+    intent: ToolCallRequest;
+    // (undocumented)
+    lease: SandboxLease;
+}
+
+// @public
+export interface ChatMsg {
+    // (undocumented)
+    content: string;
+    // (undocumented)
+    role: "system" | "user" | "assistant" | "tool";
 }
 
 // @public
@@ -94,6 +112,12 @@ export class ConcurrencyDeniedError extends AgentRuntimeError {
 // @internal (undocumented)
 export type ConcurrencyGate = unknown;
 
+// @public
+export interface ConstraintPayload {
+    // (undocumented)
+    subjectOutputSchema: JSONSchema7 | null;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "ContextManager" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal (undocumented)
@@ -114,12 +138,43 @@ export interface Contract<T> {
 }
 
 // @public
+export interface ContractOutcome {
+    // (undocumented)
+    payload: string;
+    // (undocumented)
+    status: "SUCCESS" | "FAILURE" | "PARTIAL";
+    // (undocumented)
+    telemetry: {
+        executionMs: number;
+        bytesTransferred: number;
+    };
+}
+
+// @public
+export function createCertifiedEnvelope(intent: ToolCallRequest, overrides?: Partial<CertifiedContractEnvelope>): CertifiedContractEnvelope;
+
+// @public
+export function createOllamaThoughtProcess(baseUrl: string, modelAlias: string, defaults?: ThoughtPortConfig["defaults"]): OllamaThoughtProcess;
+
+// @public
+export function createStandardCatalogue(sink: EventSink): ToolkitCatalogue;
+
+// @public
+export function createTestLease(overrides?: Partial<SandboxLease>): SandboxLease;
+
+// @public
 export class DisputeResolutionError extends AgentRuntimeError {
     constructor(tier: 1 | 2 | 3 | 4, reason: string, cause?: unknown);
     // (undocumented)
     readonly reason: string;
     // (undocumented)
     readonly tier: 1 | 2 | 3 | 4;
+}
+
+// @public
+export interface EventSink {
+    // (undocumented)
+    emit(name: string, payload: Record<string, unknown>): void;
 }
 
 // @public
@@ -274,11 +329,25 @@ export const FinalReportSchema: z.ZodObject<{
     };
 }>;
 
+// @public
+export interface ForwardResult {
+    // (undocumented)
+    body: string;
+    // (undocumented)
+    type: "ok" | "fail";
+}
+
 // @public (undocumented)
 export type GrantLevel = z.infer<typeof GrantLevelSchema>;
 
 // @public
 export const GrantLevelSchema: z.ZodEnum<["auto", "acknowledged", "acknowledged-privileged", "manual"]>;
+
+// @public
+export function gutCertifiedContract(envelope: CertifiedContractEnvelope, catalogue: ToolkitCatalogue, globalKillSwitch: AbortSignal): Promise<ContractOutcome>;
+
+// @public
+export const HARD_TOOL_CEILING_MS = 30000;
 
 // @public
 export class HumanGateTimeoutError extends AgentRuntimeError {
@@ -305,10 +374,53 @@ export interface HumanProtocolRequest {
     toolDefinition: ToolDefinition;
 }
 
+// @public
+export class InferenceQualityError extends AgentRuntimeError {
+    constructor(message: string, violations: string[], rawOutput?: string | undefined);
+    // (undocumented)
+    readonly rawOutput?: string | undefined;
+    // (undocumented)
+    readonly violations: string[];
+}
+
+// @public
+export function isTransientTransport(err: unknown): boolean;
+
+// @public
+export interface JSONSchema7 {
+    // (undocumented)
+    [key: string]: unknown;
+    // (undocumented)
+    properties?: Record<string, JSONSchema7>;
+    // (undocumented)
+    required?: string[];
+    // (undocumented)
+    type?: string;
+}
+
+// @public (undocumented)
+export interface Logger {
+    // (undocumented)
+    log(level: LogLevel, msg: string, meta?: Record<string, unknown>): void;
+}
+
+// @public
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
 // Warning: (ae-internal-missing-underscore) The name "Metrics" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal (undocumented)
 export type Metrics = unknown;
+
+// @public
+export interface MountedTools {
+    // (undocumented)
+    manifests: ReadonlyArray<{
+        name: string;
+        description: string;
+        parametersJsonSchema: JSONSchema7;
+    }>;
+}
 
 // @public (undocumented)
 export type ObservabilityEvent = z.infer<typeof ObservabilityEventSchema>;
@@ -334,10 +446,50 @@ export const ObservabilityEventSchema: z.ZodObject<{
     traceId?: string | undefined;
 }>;
 
-// Warning: (ae-internal-missing-underscore) The name "OllamaThoughtProcess" should be prefixed with an underscore because the declaration is marked as @internal
-//
-// @internal (undocumented)
-export type OllamaThoughtProcess = unknown;
+// @public
+export class OllamaThoughtProcess implements ThoughtProcess {
+    constructor(cfg: ThoughtPortConfig, modelAlias: string);
+    // (undocumented)
+    digest(messages: ChatMsg[], schedule: RequestSchedule): Promise<AssistantTurn>;
+    // (undocumented)
+    get identityTag(): string;
+}
+
+// @public (undocumented)
+export type Progress = z.infer<typeof ProgressSchema>;
+
+// @public
+export const ProgressSchema: z.ZodObject<{
+    doneTasks: z.ZodNumber;
+    totalKnownTasks: z.ZodNullable<z.ZodNumber>;
+    currentActivity: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    doneTasks: number;
+    totalKnownTasks: number | null;
+    currentActivity: string;
+}, {
+    doneTasks: number;
+    totalKnownTasks: number | null;
+    currentActivity: string;
+}>;
+
+// @public
+export interface RequestSchedule {
+    // (undocumented)
+    constrain?: ConstraintPayload;
+    // (undocumented)
+    entropyOverride?: number;
+    // (undocumented)
+    idleLiveSeconds?: number;
+    // (undocumented)
+    killSwitch: AbortSignal;
+    // (undocumented)
+    mounting?: MountedTools;
+    // (undocumented)
+    transcriptDigest?: string;
+    // (undocumented)
+    upperBoundTokenCount?: number;
+}
 
 // Warning: (ae-internal-missing-underscore) The name "Resolver" should be prefixed with an underscore because the declaration is marked as @internal
 //
@@ -364,10 +516,53 @@ export interface ResourceLease {
     units: number;
 }
 
+// @public
+export interface SandboxLease {
+    // (undocumented)
+    auditTrailId: string;
+    // (undocumented)
+    canClobberDisc: boolean;
+    // (undocumented)
+    leaseMs: number;
+    // (undocumented)
+    maxResultBytes: number;
+    // (undocumented)
+    tag: string;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "Sealer" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal (undocumented)
 export type Sealer = unknown;
+
+// @public
+export const SMART_LIMIT_BYTES = 48000;
+
+// @public
+export interface ThoughtPortConfig {
+    // (undocumented)
+    baseUrl: string;
+    // (undocumented)
+    defaults?: {
+        numCtx?: number;
+        idleLiveSeconds?: number;
+        timeoutMs?: number;
+        retries?: number;
+    };
+    // (undocumented)
+    verbose?: Logger;
+}
+
+// @public
+export interface ThoughtProcess {
+    // (undocumented)
+    digest(messages: ChatMsg[], schedule: RequestSchedule): Promise<AssistantTurn>;
+    // (undocumented)
+    readonly identityTag: string;
+}
+
+// @public
+export function toJsonSchema(schema: unknown): JSONSchema7;
 
 // @public
 export interface ToolCallRequest {
@@ -392,9 +587,10 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
     // (undocumented)
     handle: string;
     // (undocumented)
-    invoke: (args: TArgs, lease: ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
+    invoke: (args: TArgs, lease: SandboxLease | ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
     // (undocumented)
     maxOutputChars?: number;
+    reflect?: (raw: ToolResult) => unknown;
     // (undocumented)
     resourceClass: ResourceClass;
     // (undocumented)
@@ -448,10 +644,34 @@ export class ToolExecutionError extends AgentRuntimeError {
     readonly toolName: string;
 }
 
-// Warning: (ae-internal-missing-underscore) The name "ToolkitCatalogue" should be prefixed with an underscore because the declaration is marked as @internal
-//
-// @internal (undocumented)
-export type ToolkitCatalogue = unknown;
+// @public
+export class ToolFailure extends AgentRuntimeError {
+    constructor(message: string, category: "validation" | "execution" | "timeout" | "denied" | "unknown_tool");
+    // (undocumented)
+    readonly category: "validation" | "execution" | "timeout" | "denied" | "unknown_tool";
+}
+
+// @public
+export class ToolInvocationError extends Error {
+    constructor(message: string, category: "validation" | "execution" | "timeout" | "denied" | "unknown_tool");
+    // (undocumented)
+    readonly category: "validation" | "execution" | "timeout" | "denied" | "unknown_tool";
+}
+
+// @public
+export class ToolkitCatalogue {
+    constructor(sink: EventSink);
+    executeDirect<TArgs extends Record<string, unknown>>(handle: string, args: TArgs, lease: SandboxLease, cancelToken: AbortSignal): Promise<ToolResult>;
+    forwardIntent(intent: ToolCallRequest, lease: SandboxLease, cancelToken: AbortSignal): Promise<ForwardResult>;
+    get(handle: string): ToolDefinition | undefined;
+    manifests(): Array<{
+        name: string;
+        description: string;
+        parametersJsonSchema: JSONSchema7;
+    }>;
+    place<TArgs extends Record<string, unknown>>(tool: ToolDefinition<TArgs>): this;
+    slotNames(): string[];
+}
 
 // @public
 export interface ToolResult {
@@ -469,6 +689,25 @@ export interface ToolResult {
     toolCallId: string;
     // (undocumented)
     trustLevel: "verified" | "trusted" | "unverified";
+}
+
+// @public
+export class TransportFailure extends AgentRuntimeError {
+    constructor(message: string, retryAfterMs?: number | null | undefined, cause?: unknown);
+    // (undocumented)
+    readonly retryAfterMs?: number | null | undefined;
+}
+
+// @public
+export interface TurnUsage {
+    // (undocumented)
+    evalTokens: number;
+    // (undocumented)
+    loadDurationMs: number;
+    // (undocumented)
+    promptTokens: number;
+    // (undocumented)
+    totalDurationMs: number;
 }
 
 // (No @packageDocumentation comment for this package)

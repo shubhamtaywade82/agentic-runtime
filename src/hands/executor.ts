@@ -3,8 +3,8 @@ import type {
   ToolCallRequest,
   SandboxLease,
   ContractOutcome,
-  TransportFailure,
 } from "../core/types.js";
+import { TransportFailure } from "../core/types.js";
 
 /**
  * Certified contract envelope for execution.

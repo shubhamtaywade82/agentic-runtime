@@ -1,13 +1,10 @@
-import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import type { ZodIssue, ZodType } from "zod";
 import type {
   ToolDefinition,
   SandboxLease,
   ToolCallRequest,
   ToolResult,
-  ToolEffect,
-  GrantLevel,
-  ResourceClass,
   EventSink,
   JSONSchema7,
 } from "../core/types.js";
@@ -45,7 +42,7 @@ export interface ForwardResult {
  * @public
  */
 export class ToolkitCatalogue {
-  private slots = new Map<string, ToolDefinition<Record<string, unknown>, unknown>>();
+  private slots = new Map<string, ToolDefinition<Record<string, unknown>>>();
 
   constructor(private sink: EventSink) {}
 
@@ -53,10 +50,10 @@ export class ToolkitCatalogue {
    * Register a tool in the catalogue.
    * @public
    */
-  place<TArgs extends Record<string, unknown>, TResult>(
-    tool: ToolDefinition<TArgs, TResult>,
+  place<TArgs extends Record<string, unknown>>(
+    tool: ToolDefinition<TArgs>,
   ): this {
-    this.slots.set(tool.handle, tool as ToolDefinition<Record<string, unknown>, unknown>);
+    this.slots.set(tool.handle, tool as ToolDefinition<Record<string, unknown>>);
     return this;
   }
 
@@ -117,8 +114,9 @@ export class ToolkitCatalogue {
     // Strict parameter validation
     const verified = tool.argsShape.safeParse(intent.arguments);
     if (!verified.success) {
-      const grievances = verified.error.issues
-        .map((issue: z.ZodIssue) => `${issue.path.join(".")}: ${issue.message}`)
+      const issues = (verified as { error: { issues: ZodIssue[] } }).error.issues;
+      const grievances = issues
+        .map((issue: ZodIssue) => `${issue.path.join(".")}: ${issue.message}`)
         .join("; ");
       return {
         type: "fail",
@@ -184,7 +182,7 @@ export class ToolkitCatalogue {
    * Bypasses intent forwarding, uses validated args directly.
    * @public
    */
-  async executeDirect<TArgs extends Record<string, unknown>, TResult>(
+  async executeDirect<TArgs extends Record<string, unknown>>(
     handle: string,
     args: TArgs,
     lease: SandboxLease,
@@ -197,8 +195,9 @@ export class ToolkitCatalogue {
 
     const verified = tool.argsShape.safeParse(args);
     if (!verified.success) {
+      const issues = (verified as { error: { issues: ZodIssue[] } }).error.issues;
       throw new ToolInvocationError(
-        `Validation failed: ${verified.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+        `Validation failed: ${issues.map((issue: ZodIssue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`,
         "validation",
       );
     }
@@ -257,8 +256,8 @@ export class ToolkitCatalogue {
  * Strips unsupported features for grammar compiler compatibility.
  * @public
  */
-export function toJsonSchema(schema: unknown): JSONSchema7 {
-  return zodToJsonSchema(schema as any, { target: "openApi3" }) as JSONSchema7;
+export function toJsonSchema(schema: ZodType<unknown, unknown, unknown>): JSONSchema7 {
+  return zodToJsonSchema(schema, { target: "openApi3" }) as JSONSchema7;
 }
 
 /**
