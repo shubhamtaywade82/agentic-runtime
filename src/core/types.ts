@@ -20,8 +20,72 @@ export class AgentRuntimeError extends Error {
 }
 
 /**
- * The cognitive step limit was exceeded without the agent reaching a terminal state.
- * Maps to SDK `maxIterations` exhaustion.
+ * Transport-level failures (network, timeout, 5xx) - RETRYABLE.
+ * The SDK handles retry logic; runtime treats these as transient.
+ * @public
+ */
+export class TransportFailure extends AgentRuntimeError {
+  constructor(
+    message: string,
+    public readonly retryAfterMs?: number | null,
+    cause?: unknown,
+  ) {
+    super(message, "TRANSPORT_FAILURE", cause);
+    this.name = "TransportFailure";
+  }
+}
+
+/**
+ * Inference quality failures (malformed JSON, schema violations) - NOT RETRYABLE.
+ * Same input produces same output; must feed violations back for self-correction.
+ * @public
+ */
+export class InferenceQualityError extends AgentRuntimeError {
+  constructor(
+    message: string,
+    public readonly violations: string[],
+    public readonly rawOutput?: string,
+  ) {
+    super(message, "INFERENCE_QUALITY_ERROR", undefined);
+    this.name = "InferenceQualityError";
+  }
+}
+
+/**
+ * Tool execution failures - categorized for precise handling.
+ * @public
+ */
+export class ToolFailure extends AgentRuntimeError {
+  constructor(
+    message: string,
+    public readonly category: "validation" | "execution" | "timeout" | "denied" | "unknown_tool",
+  ) {
+    super(message, "TOOL_FAILURE", undefined);
+    this.name = "ToolFailure";
+  }
+}
+
+/**
+ * Budget exhaustion - NOT RETRYABLE without budget increase.
+ * @public
+ */
+export class BudgetExhaustedError extends AgentRuntimeError {
+  constructor(
+    public readonly dimension: "steps" | "wallclock" | "tokens" | "intents",
+    public readonly consumed: number,
+    public readonly limit: number,
+  ) {
+    super(
+      `Budget exhausted: ${dimension} (${consumed}/${limit})`,
+      "BUDGET_EXHAUSTED",
+      undefined,
+    );
+    this.name = "BudgetExhaustedError";
+  }
+}
+
+/**
+ * Cognitive step limit exceeded without resolution.
  * @public
  */
 export class CognitiveOverloadError extends AgentRuntimeError {
@@ -40,7 +104,7 @@ export class CognitiveOverloadError extends AgentRuntimeError {
 }
 
 /**
- * A tool execution failed (network, validation, or handler error).
+ * Tool execution failed (network, validation, or handler error).
  * Wraps the original tool error for the dispute lattice.
  * @public
  */
@@ -76,26 +140,6 @@ export class HumanGateTimeoutError extends AgentRuntimeError {
       cause,
     );
     this.name = "HumanGateTimeoutError";
-  }
-}
-
-/**
- * A hard budget (wall-time, token ceiling, intent count) was exhausted.
- * @public
- */
-export class BudgetExhaustedError extends AgentRuntimeError {
-  constructor(
-    public readonly budgetType: "wallTime" | "cogSteps" | "intentCount",
-    public readonly consumed: number,
-    public readonly limit: number,
-    cause?: unknown,
-  ) {
-    super(
-      `Budget exhausted: ${budgetType} (${consumed}/${limit})`,
-      "BUDGET_EXHAUSTED",
-      cause,
-    );
-    this.name = "BudgetExhaustedError";
   }
 }
 
@@ -139,16 +183,35 @@ export class ConcurrencyDeniedError extends AgentRuntimeError {
 }
 
 /**
+ * Check if an error is a transient transport failure (retryable).
+ * @public
+ */
+export function isTransientTransport(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up|5\d\d/.test(`${err.name} ${err.message}`);
+}
+
+/**
+ * Turn usage metrics from the inference engine.
+ * @public
+ */
+export interface TurnUsage {
+  promptTokens: number;
+  evalTokens: number;
+  totalDurationMs: number;
+  loadDurationMs: number;
+}
+
+/**
  * Represents a single assistant turn in the execution trace.
  * Aligns with SDK message structure.
  * @public
  */
 export interface AssistantTurn {
-  role: "assistant";
   content: string;
-  toolCalls?: ToolCallRequest[];
-  reasoning?: string; // Internal monologue / chain-of-thought
-  timestamp: number;
+  toolCalls: ToolCallRequest[];
+  finishTag: "stop" | "tool_calls" | "length_truncated";
+  usage: TurnUsage | null;
 }
 
 /**
@@ -173,8 +236,21 @@ export interface ToolResult {
   success: boolean;
   output: unknown;
   error?: string;
-  trustLevel: "verified" | "trusted" | "unverified"; // Result trust level for fencing
+  trustLevel: "verified" | "trusted" | "unverified";
   executionTimeMs: number;
+}
+
+/**
+ * Outcome of a certified contract execution.
+ * @public
+ */
+export interface ContractOutcome {
+  status: "SUCCESS" | "FAILURE" | "PARTIAL";
+  payload: string; // Fenced with <result_trust_level="untrusted-data">
+  telemetry: {
+    executionMs: number;
+    bytesTransferred: number;
+  };
 }
 
 /**
@@ -201,7 +277,7 @@ export const FinalReportSchema = z.object({
   findings: z.array(
     z.object({
       claim: z.string(),
-      evidenceRef: z.string(), // References execution step or tool result ID
+      evidenceRef: z.string(),
       confidence: z.number().min(0).max(1),
     }),
   ),
@@ -224,7 +300,7 @@ export const FinalReportSchema = z.object({
   }),
   seal: z.object({
     timestamp: z.string().datetime(),
-    hash: z.string(), // SHA-256 of the report content
+    hash: z.string(),
     runtimeVersion: z.string(),
   }),
 });
@@ -293,11 +369,11 @@ export type GrantLevel = z.infer<typeof GrantLevelSchema>;
 export const ToolDefinitionSchema = z.object({
   handle: z.string().min(1),
   caption: z.string().min(1),
-  argsShape: z.custom<Contract<unknown>>(), // Structural Zod alias
+  argsShape: z.custom<Contract<unknown>>(),
   resourceClass: ResourceClassSchema,
   effects: ToolEffectSchema.default("pure"),
   grantLevel: GrantLevelSchema.default("auto"),
-  maxOutputChars: z.number().int().positive().optional(), // Context bleed mitigation
+  maxOutputChars: z.number().int().positive().optional(),
   timeoutMs: z.number().int().positive().optional(),
 });
 
@@ -315,6 +391,18 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
   maxOutputChars?: number;
   timeoutMs?: number;
   invoke: (args: TArgs, lease: ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
+}
+
+/**
+ * Sandbox lease for tool execution isolation.
+ * @public
+ */
+export interface SandboxLease {
+  tag: string;
+  leaseMs: number;
+  maxResultBytes: number;
+  auditTrailId: string;
+  canClobberDisc: boolean;
 }
 
 /**
@@ -357,6 +445,116 @@ export interface HumanProtocolRequest {
     stepIndex: number;
     previousAttempts: number;
   };
+}
+
+/**
+ * Mounted tools manifest for the Brain.
+ * @public
+ */
+export interface MountedTools {
+  manifests: ReadonlyArray<{
+    name: string;
+    description: string;
+    parametersJsonSchema: JSONSchema7;
+  }>;
+}
+
+/**
+ * Constraint payload for grammar-constrained decoding.
+ * @public
+ */
+export interface ConstraintPayload {
+  subjectOutputSchema: JSONSchema7 | null;
+}
+
+/**
+ * Request schedule for inference calls.
+ * @public
+ */
+export interface RequestSchedule {
+  mounting?: MountedTools;
+  constrain?: ConstraintPayload;
+  idleLiveSeconds?: number;
+  entropyOverride?: number;
+  upperBoundTokenCount?: number;
+  killSwitch: AbortSignal;
+  transcriptDigest?: string;
+}
+
+/**
+ * Chat message format for the Brain interface.
+ * @public
+ */
+export interface ChatMsg {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+}
+
+/**
+ * ThoughtProcess interface - thin seam for inference adapters.
+ * @public
+ */
+export interface ThoughtProcess {
+  digest(messages: ChatMsg[], schedule: RequestSchedule): Promise<AssistantTurn>;
+  readonly identityTag: string;
+}
+
+/**
+ * Configuration for the Ollama adapter.
+ * @public
+ */
+export interface ThoughtPortConfig {
+  baseUrl: string;
+  defaults?: {
+    numCtx?: number;
+    idleLiveSeconds?: number;
+    timeoutMs?: number;
+    retries?: number;
+  };
+  verbose?: Logger;
+}
+
+/**
+ * Logger interface.
+ * @public
+ */
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
+/** @public */
+export interface Logger {
+  log(level: LogLevel, msg: string, meta?: Record<string, unknown>): void;
+}
+
+/**
+ * Event sink for observability.
+ * @public
+ */
+export interface EventSink {
+  emit(name: string, payload: Record<string, unknown>): void;
+}
+
+/**
+ * Progress tracking.
+ * @public
+ */
+export const ProgressSchema = z.object({
+  doneTasks: z.number().int().nonnegative(),
+  totalKnownTasks: z.number().int().nonnegative().nullable(),
+  currentActivity: z.string(),
+});
+
+/** @public */
+export type Progress = z.infer<typeof ProgressSchema>;
+
+/**
+ * JSON Schema type (from json-schema package).
+ * @public
+ */
+export interface JSONSchema7 {
+  type?: string;
+  properties?: Record<string, JSONSchema7>;
+  required?: string[];
+  [key: string]: unknown;
 }
 
 /**
