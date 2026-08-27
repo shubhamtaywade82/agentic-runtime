@@ -5,6 +5,7 @@
 ```ts
 
 import { z } from 'zod';
+import { ZodType } from 'zod';
 
 // Warning: (ae-internal-missing-underscore) The name "AgentRunner" should be prefixed with an underscore because the declaration is marked as @internal
 //
@@ -562,7 +563,7 @@ export interface ThoughtProcess {
 }
 
 // @public
-export function toJsonSchema(schema: unknown): JSONSchema7;
+export function toJsonSchema(schema: Contract<unknown> | ZodType<any, any, any>): JSONSchema7;
 
 // @public
 export interface ToolCallRequest {

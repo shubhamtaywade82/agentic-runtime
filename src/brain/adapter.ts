@@ -1,4 +1,4 @@
-import { OllamaClient, type ChatRequestOptions, type ChatResponse } from "@nemesis-oss/ollama-sdk";
+import { OllamaClient } from "@nemesis-oss/ollama-sdk";
 import type {
   ThoughtProcess,
   ThoughtPortConfig,
@@ -7,6 +7,25 @@ import type {
   AssistantTurn,
 } from "../core/types.js";
 import { InferenceQualityError, TransportFailure } from "../core/types.js";
+
+/**
+ * Internal SDK response structure for type-safe handling.
+ */
+interface SDKMessage {
+  role: string;
+  content?: string;
+  tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }>;
+}
+
+interface SDKChatResponse {
+  message?: SDKMessage;
+  messages?: SDKMessage[];
+  done_reason?: string;
+  prompt_eval_count?: number;
+  eval_count?: number;
+  load_duration?: number;
+  total_duration?: number;
+}
 
 /**
  * Coerce raw tool arguments to Record<string, unknown>.
@@ -24,21 +43,6 @@ function coerce(rawArgs: unknown): Record<string, unknown> {
     return rawArgs as Record<string, unknown>;
   }
   throw new InferenceQualityError("Non-object tool arguments.", ["non_object_args"]);
-}
-
-/**
- * SDK Chat response structure (flexible to handle version differences).
- */
-interface SDKChatResponse {
-  messages?: Array<{ role: string; content?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> }>;
-  message?: { role: string; content?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> };
-  content?: string;
-  tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }>;
-  done_reason?: string;
-  prompt_eval_count?: number;
-  eval_count?: number;
-  load_duration?: number;
-  total_duration?: number;
 }
 
 /**
@@ -90,9 +94,10 @@ export class OllamaThoughtProcess implements ThoughtProcess {
     }
 
     // Build payload for SDK chat call
-    const payload: ChatRequestOptions = {
+    // Use type assertion to bypass read-only properties in SDK types
+    const payload: Record<string, unknown> = {
       model: this.modelAlias,
-      messages: messages as any, // SDK expects specific message format
+      messages: messages as SDKMessage[],
       stream: false,
       options,
     };
@@ -127,48 +132,34 @@ export class OllamaThoughtProcess implements ThoughtProcess {
     abortSignal.addEventListener("abort", abortHandler);
 
     try {
-      // Call SDK - response structure depends on SDK version
-      const response = await this.remote.chat(payload);
+      // Call SDK - cast payload to satisfy SDK overloads
+      const response = await this.remote.chat(payload as Record<string, unknown>);
       
       const durationMs = performance.now() - startTime;
 
-      // Handle different response structures from SDK
-      // Try to extract assistant message from various possible response shapes
-      let assistantMsg: SDKChatResponse | null = null;
+      // Handle response with type assertions for SDK version flexibility
+      const r = response as unknown as SDKChatResponse;
+      
+      // Extract assistant message
+      let assistantMsg: SDKMessage | null = null;
       let doneReason: string | undefined;
-      let promptTokens: number = -1;
-      let evalTokens: number = -1;
-      let loadDuration: number = -1;
-
-      if (response && typeof response === "object") {
-        // Try messages array first
-        if (Array.isArray(response.messages)) {
-          const msgs = response.messages;
-          assistantMsg = msgs
-            ?.filter((m) => m.role === "assistant")
-            .pop() ?? msgs?.[msgs.length - 1] ?? null;
-          doneReason = response.done_reason;
-        }
-        // Try direct message property
-        else if (response.message) {
-          assistantMsg = response.message;
-          doneReason = response.done_reason;
-        }
-        // Try direct properties (response itself is the message)
-        else if (response.content !== undefined) {
-          assistantMsg = response;
-        }
-
-        promptTokens = response.prompt_eval_count ?? -1;
-        evalTokens = response.eval_count ?? -1;
-        loadDuration = response.load_duration ?? -1;
+      
+      if (r.messages && Array.isArray(r.messages)) {
+        const msgs = r.messages;
+        assistantMsg = msgs
+          ?.filter((m: SDKMessage) => m.role === "assistant")
+          .pop() ?? msgs?.[msgs.length - 1] ?? null;
+        doneReason = r.done_reason;
+      } else if (r.message) {
+        assistantMsg = r.message;
+        doneReason = r.done_reason;
       }
 
       if (!assistantMsg) {
         throw new InferenceQualityError("No assistant message in response.", ["missing_assistant_message"]);
       }
 
-      const toolCalls = assistantMsg?.tool_calls ?? [];
+      const toolCalls = assistantMsg.tool_calls ?? [];
       const finishReason = doneReason ?? (toolCalls.length > 0 ? "tool_calls" : "stop");
       
       // Map done_reason to finishTag
@@ -180,7 +171,7 @@ export class OllamaThoughtProcess implements ThoughtProcess {
       }
 
       return {
-        content: assistantMsg?.content ?? "",
+        content: assistantMsg.content ?? "",
         toolCalls: toolCalls.map((tc: { id?: string; function?: { name?: string; arguments?: unknown } }, i: number) => ({
           id: tc.id ?? `${i}-${crypto.randomUUID()}`,
           name: tc.function?.name ?? `unknown_${i}`,
@@ -188,10 +179,10 @@ export class OllamaThoughtProcess implements ThoughtProcess {
         })),
         finishTag,
         usage: {
-          promptTokens,
-          evalTokens,
+          promptTokens: r.prompt_eval_count ?? -1,
+          evalTokens: r.eval_count ?? -1,
           totalDurationMs: durationMs,
-          loadDurationMs: loadDuration,
+          loadDurationMs: r.load_duration ?? -1,
         },
       };
     } catch (err) {

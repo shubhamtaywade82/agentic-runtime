@@ -7,6 +7,7 @@ import type {
   ToolResult,
   EventSink,
   JSONSchema7,
+  Contract,
 } from "../core/types.js";
 
 /**
@@ -254,10 +255,11 @@ export class ToolkitCatalogue {
 /**
  * Convert Zod schema to JSON Schema (conservative, OpenAPI 3 compatible).
  * Strips unsupported features for grammar compiler compatibility.
+ * Accepts the structural Contract alias and casts to ZodType internally.
  * @public
  */
-export function toJsonSchema(schema: ZodType<unknown, unknown, unknown>): JSONSchema7 {
-  return zodToJsonSchema(schema, { target: "openApi3" }) as JSONSchema7;
+export function toJsonSchema(schema: Contract<unknown> | ZodType<unknown, unknown, unknown>): JSONSchema7 {
+  return zodToJsonSchema(schema as ZodType<unknown, unknown, unknown>, { target: "openApi3" }) as JSONSchema7;
 }
 
 /**
