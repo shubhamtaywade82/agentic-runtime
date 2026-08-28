@@ -9,6 +9,7 @@ import type {
   JSONSchema7,
   Contract,
 } from "../core/types.js";
+import type { ResourceSentinel } from "../sentinel/index.js";
 
 /**
  * Maximum bytes for tool output before truncation (context bleed mitigation).
@@ -40,20 +41,29 @@ export interface ForwardResult {
  * - Execution with timeout and abort support
  * - Output fencing with <result_trust_level="untrusted-data">
  * - Observation projection (reflect) for context compaction
+ * - Resource-class aware routing (A3: fail-closed GPU routing)
  * @public
  */
 export class ToolkitCatalogue {
   private slots = new Map<string, ToolDefinition<Record<string, unknown>>>();
 
-  constructor(private sink: EventSink) {}
+  constructor(private sink: EventSink, private sentinel?: ResourceSentinel) {}
 
   /**
    * Register a tool in the catalogue.
+   * Fail-closed validation: gpu-inference tools MUST have targetModelId.
    * @public
    */
   place<TArgs extends Record<string, unknown>>(
     tool: ToolDefinition<TArgs>,
   ): this {
+    // A3: Fail-closed validation - gpu-inference tools MUST have targetModelId
+    if (tool.resourceClass === "gpu-inference" && !tool.targetModelId) {
+      throw new ToolInvocationError(
+        `Tool ${tool.handle} requires resourceClass 'gpu-inference' but lacks targetModelId.`,
+        "denied"
+      );
+    }
     this.slots.set(tool.handle, tool as ToolDefinition<Record<string, unknown>>);
     return this;
   }
@@ -125,56 +135,76 @@ export class ToolkitCatalogue {
       };
     }
 
-    const startedAt = performance.now();
+    // A3: Resource-class aware routing
+    const resClass = tool.resourceClass ?? "external-network";
+    let release: (() => void) | undefined;
+    
     try {
-      // Execute with deadline guard
-      const raw = await this.guardDeadlines(
-        () => tool.invoke(verified.data, lease, cancelToken),
-        tool.timeoutMs ?? HARD_TOOL_CEILING_MS,
-      );
+      if (resClass === "local-sandbox") {
+        if (!this.sentinel) throw new ToolInvocationError("Sentinel required for local-sandbox tools", "denied");
+        release = await this.sentinel!.handsGate.acquire("normal", cancelToken);
+      } else if (resClass === "gpu-inference") {
+        if (!this.sentinel) throw new ToolInvocationError("Sentinel required for gpu-inference tools", "denied");
+        if (!tool.targetModelId) {
+          throw new ToolInvocationError(`Tool ${tool.handle} requires targetModelId for gpu-inference`, "denied");
+        }
+        release = await this.sentinel!.brainGate(tool.targetModelId, undefined, this.sink).acquire("normal", cancelToken);
+      }
+      // external-network: no gate (assumed rate-limited internally)
 
-      // Apply observation projection (reflect) for context compaction
-      const inspectable = tool.reflect ? tool.reflect(raw) : raw;
-      const serialized = typeof inspectable === "string" 
-        ? inspectable 
-        : JSON.stringify(inspectable, null, 2);
+      const startedAt = performance.now();
+      try {
+        // Execute with deadline guard
+        const raw = await this.guardDeadlines(
+          () => tool.invoke(verified.data, lease, cancelToken),
+          tool.timeoutMs ?? HARD_TOOL_CEILING_MS,
+        );
 
-      // Fence output - neutralize fence closing tags (anti break-out vector)
-      const safeBody = serialized
-        .slice(0, SMART_LIMIT_BYTES)
-        .replace(/<\/?result_trust_level[^>]*>/g, "");
-      
-      const truncatedNote = serialized.length > SMART_LIMIT_BYTES
-        ? `\n[Truncated ${serialized.length} → ${SMART_LIMIT_BYTES} bytes.]`
-        : "";
+        // Apply observation projection (reflect) for context compaction
+        const inspectable = tool.reflect ? tool.reflect(raw) : raw;
+        const serialized = typeof inspectable === "string" 
+          ? inspectable 
+          : JSON.stringify(inspectable, null, 2);
 
-      const executionMs = performance.now() - startedAt;
-      this.sink.emit("tool:result", {
-        handle: tool.handle,
-        ms: executionMs,
-        bytes: serialized.length,
-        truncated: serialized.length > SMART_LIMIT_BYTES,
-      });
+        // Fence output - neutralize fence closing tags (anti break-out vector)
+        const safeBody = serialized
+          .slice(0, SMART_LIMIT_BYTES)
+          .replace(/<\/?result_trust_level[^>]*>/g, "");
+        
+        const truncatedNote = serialized.length > SMART_LIMIT_BYTES
+          ? `\n[Truncated ${serialized.length} → ${SMART_LIMIT_BYTES} bytes.]`
+          : "";
 
-      return {
-        type: "ok",
-        body: `<result_trust_level="untrusted-data" src="${tool.handle}">\n${safeBody}\n</result_trust_level>${truncatedNote}`,
-      };
+        const executionMs = performance.now() - startedAt;
+        this.sink.emit("tool:result", {
+          handle: tool.handle,
+          ms: executionMs,
+          bytes: serialized.length,
+          truncated: serialized.length > SMART_LIMIT_BYTES,
+        });
 
-    } catch (err) {
-      const executionMs = performance.now() - startedAt;
-      const failure = err instanceof ToolInvocationError ? err : new ToolInvocationError(String(err), "execution");
-      
-      this.sink.emit("tool:failure", {
-        handle: tool.handle,
-        kind: failure.category,
-        ms: executionMs,
-      });
+        return {
+          type: "ok",
+          body: `<result_trust_level="untrusted-data" src="${tool.handle}">\n${safeBody}\n</result_trust_level>${truncatedNote}`,
+        };
 
-      return {
-        type: "fail",
-        body: `${failure.category.toUpperCase()} _ACTION HALTED_ :: ${failure.message}\nAssess whether alternative paths exist.`,
-      };
+      } catch (err) {
+        const executionMs = performance.now() - startedAt;
+        const failure = err instanceof ToolInvocationError ? err : new ToolInvocationError(String(err), "execution");
+        
+        this.sink.emit("tool:failure", {
+          handle: tool.handle,
+          kind: failure.category,
+          ms: executionMs,
+        });
+
+        return {
+          type: "fail",
+          body: `${failure.category.toUpperCase()} _ACTION HALTED_ :: ${failure.message}\nAssess whether alternative paths exist.`,
+        };
+      }
+    } finally {
+      release?.();
     }
   }
 

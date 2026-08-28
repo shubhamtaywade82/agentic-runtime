@@ -1,7 +1,5 @@
 import type {
   ChatMsg,
-  ExecutionStep,
-  FinalReport,
   ThoughtProcess,
   RequestSchedule,
 } from "../core/types.js";

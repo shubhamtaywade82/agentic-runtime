@@ -1,9 +1,6 @@
 import type {
-  ChatMsg,
   ExecutionStep,
   FinalReport,
-  BudgetConfig,
-  ResourceLease,
   ToolCallRequest,
   ContractOutcome,
   ThoughtProcess,
@@ -13,6 +10,7 @@ import { ContextManager } from "../memory/context-manager.js";
 import { ToolDispatcher } from "../hands/tool-dispatcher.js";
 import { RepeatCallBinder } from "../loop/repeat-call-binder.js";
 import { ToolkitCatalogue, createTestLease } from "../hands/catalogue.js";
+import { createCertifiedEnvelope } from "../hands/tool-dispatcher.js";
 import { BudgetExhaustedError, CognitiveOverloadError } from "../core/types.js";
 
 /**
@@ -243,7 +241,6 @@ export class AgentRunner {
 
     return {
       mounting: { manifests },
-      constrain: undefined,
       idleLiveSeconds: 1800,
       entropyOverride: 0.1,
       upperBoundTokenCount: this.budgets.maxTokensPerStep,
@@ -344,7 +341,12 @@ export function createAgentRunner(
   brain: ThoughtProcess,
   catalogue: ToolkitCatalogue,
   contextManager: ContextManager,
-  config: Parameters<typeof AgentRunner>[3],
+  config: {
+    budgets?: Partial<RunBudgets>;
+    adminCharter: string;
+    transparencyProfile?: "sketch" | "internal-monologue" | null;
+    selfQuestionProfile?: string | null;
+  },
 ): AgentRunner {
   return new AgentRunner(brain, catalogue, contextManager, config);
 }

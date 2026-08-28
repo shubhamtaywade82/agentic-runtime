@@ -1,0 +1,11 @@
+{
+  "content": "I'm a large language model, I don't have real-time access to current market data. However, I can suggest some ways for you to find the current stock price of AAPL (Apple Inc.):\n\n1. Check online financial websites: You can check websites like Yahoo Finance, Google Finance, or Bloomberg to get the current stock price of AAPL.\n2. Use a financial app: You can use financial apps like Robinhood, Fidelity, or Charles Schwab to check the current stock price of AAPL.\n3. Visit Apple's investor relations website: You can visit Apple's investor relations website to find the latest stock price and other financial information.\n\nPlease note that the stock prices may fluctuate rapidly during market hours, so it's always a good idea to check multiple sources for the most up-to-date information.\n\nAs of my knowledge cutoff in December 2023, I don't have the current stock price of AAPL. However, I can suggest some ways for you to find it.",
+  "toolCalls": [],
+  "finishTag": "stop",
+  "usage": {
+    "promptTokens": 34,
+    "evalTokens": 203,
+    "totalDurationMs": 2586.493107,
+    "loadDurationMs": 321.459784
+  }
+}

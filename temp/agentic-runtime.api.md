@@ -7,10 +7,17 @@
 import { z } from 'zod';
 import { ZodType } from 'zod';
 
-// Warning: (ae-internal-missing-underscore) The name "AgentRunner" should be prefixed with an underscore because the declaration is marked as @internal
-//
-// @internal (undocumented)
-export type AgentRunner = unknown;
+// @public
+export class AgentRunner {
+    constructor(brain: ThoughtProcess, catalogue: ToolkitCatalogue, contextManager: ContextManager, config: {
+        budgets?: Partial<RunBudgets>;
+        adminCharter: string;
+        transparencyProfile?: "sketch" | "internal-monologue" | null;
+        selfQuestionProfile?: string | null;
+    });
+    getAbortController(): AbortController;
+    run(objective: string): Promise<RunResult>;
+}
 
 // @public
 export class AgentRuntimeError extends Error {
@@ -20,6 +27,9 @@ export class AgentRuntimeError extends Error {
     // (undocumented)
     readonly code: string;
 }
+
+// @public
+export const ALL_METRIC_NAMES: readonly ("runtime_gate_wait_ms" | "runtime_gate_active" | "runtime_gate_waiting" | "runtime_gate_grants_total" | "runtime_gate_refunds_total" | "runtime_gate_saturation_total" | "runtime_inference_ms" | "runtime_tokens_prompt_total" | "runtime_tokens_eval_total" | "runtime_inference_turns_total" | "runtime_inference_truncations_total" | "runtime_tool_ms" | "runtime_tool_failures_total" | "runtime_tool_invocations_total" | "runtime_tool_bytes_transferred_total" | "runtime_run_status_total" | "runtime_run_ms" | "runtime_run_steps_total" | "runtime_run_intents_total" | "runtime_run_salvage_total" | "runtime_digestions_total" | "runtime_ctx_est_tokens" | "runtime_ctx_lane_length" | "runtime_ctx_pins_total" | "runtime_disputes_total" | "runtime_dispute_ms" | "runtime_dispute_quarantine_total" | "runtime_dispute_oscillation_total" | "runtime_seals_total" | "runtime_seal_violations_total" | "runtime_seal_ms" | "runtime_seal_reseal_attempts_total" | "runtime_sink_emitted_total" | "runtime_sink_dropped_total" | "runtime_sink_listener_errors_total")[];
 
 // @public
 export function assertContract<T>(schema: z.ZodType<T>): Contract<T>;
@@ -108,10 +118,13 @@ export class ConcurrencyDeniedError extends AgentRuntimeError {
     readonly resourceClass: string;
 }
 
-// Warning: (ae-internal-missing-underscore) The name "ConcurrencyGate" should be prefixed with an underscore because the declaration is marked as @internal
-//
-// @internal (undocumented)
-export type ConcurrencyGate = unknown;
+// @public
+export class ConcurrencyGate {
+    constructor(maxConcurrent: number, maxQueueDepth: number, label: string, sink: EventSink);
+    acquire(priority: Priority, signal: AbortSignal): Promise<() => void>;
+    // (undocumented)
+    readonly label: string;
+}
 
 // @public
 export interface ConstraintPayload {
@@ -119,10 +132,29 @@ export interface ConstraintPayload {
     subjectOutputSchema: JSONSchema7 | null;
 }
 
-// Warning: (ae-internal-missing-underscore) The name "ContextManager" should be prefixed with an underscore because the declaration is marked as @internal
-//
-// @internal (undocumented)
-export type ContextManager = unknown;
+// @public
+export class ContextManager {
+    constructor(config: ContextManagerConfig, pipeline: DigestionPipeline, initialMessages?: ChatMsg[]);
+    append(message: ChatMsg): void;
+    digestions: number;
+    estimateTokens(): number;
+    formatForSynthesis(): string;
+    isPressureHigh(): boolean;
+    lane: ChatMsg[];
+    maybeDigest(scratchpadFootprint: string): Promise<void>;
+    pinCharter(message: ChatMsg): void;
+    replaceLane(messages: ChatMsg[]): void;
+    restore(snapshot: ChatMsg[]): void;
+    snapshot(): ChatMsg[];
+}
+
+// @public
+export interface ContextManagerConfig {
+    compactionThreshold?: number;
+    digestStyleHint: string;
+    modelCapacityTokenCeiling: number;
+    reserveFreshTailCount: number;
+}
 
 // @public
 export interface Contract<T> {
@@ -152,16 +184,68 @@ export interface ContractOutcome {
 }
 
 // @public
+export function createAgentRunner(brain: ThoughtProcess, catalogue: ToolkitCatalogue, contextManager: ContextManager, config: {
+    budgets?: Partial<RunBudgets>;
+    adminCharter: string;
+    transparencyProfile?: "sketch" | "internal-monologue" | null;
+    selfQuestionProfile?: string | null;
+}): AgentRunner;
+
+// @public
 export function createCertifiedEnvelope(intent: ToolCallRequest, overrides?: Partial<CertifiedContractEnvelope>): CertifiedContractEnvelope;
 
 // @public
+export function createDefaultDigestionPipeline(brain: ThoughtProcess, schedule: RequestSchedule): DigestionPipeline;
+
+// @public
 export function createOllamaThoughtProcess(baseUrl: string, modelAlias: string, defaults?: ThoughtPortConfig["defaults"]): OllamaThoughtProcess;
+
+// @public
+export function createRepeatCallBinder(config?: RepeatCallBinderConfig): RepeatCallBinder;
 
 // @public
 export function createStandardCatalogue(sink: EventSink): ToolkitCatalogue;
 
 // @public
 export function createTestLease(overrides?: Partial<SandboxLease>): SandboxLease;
+
+// @public
+export const DEFAULT_COMPACTION_THRESHOLD = 0.85;
+
+// @public
+export const DEFAULT_REPEAT_CALL_BINDER_CONFIG: RepeatCallBinderConfig;
+
+// @public
+export const DEFAULT_RUN_BUDGETS: RunBudgets;
+
+// @public
+export interface DigestionPipeline {
+    // (undocumented)
+    summarize(section: ChatMsg[], extra?: string): Promise<string>;
+}
+
+// @public
+export const DISPUTE_ACTION_LABELS: readonly ["ADOPT", "RECOMPUTE", "QUARANTINE", "HUMAN_GATE"];
+
+// @public
+export const DISPUTE_LABEL_KEYS: {
+    readonly TIER: "tier";
+    readonly ACTION: "action";
+};
+
+// @public
+export const DISPUTE_METRICS: {
+    readonly TOTAL: "runtime_disputes_total";
+    readonly LATENCY_MS: "runtime_dispute_ms";
+    readonly QUARANTINE_TOTAL: "runtime_dispute_quarantine_total";
+    readonly OSCILLATION_TOTAL: "runtime_dispute_oscillation_total";
+};
+
+// @public
+export const DISPUTE_TIER_LABELS: readonly ["ORACLE", "RECOMPUTE", "JUDGE", "HUMAN_GATE"];
+
+// @public (undocumented)
+export type DisputeActionLabel = (typeof DISPUTE_ACTION_LABELS)[number];
 
 // @public
 export class DisputeResolutionError extends AgentRuntimeError {
@@ -171,6 +255,9 @@ export class DisputeResolutionError extends AgentRuntimeError {
     // (undocumented)
     readonly tier: 1 | 2 | 3 | 4;
 }
+
+// @public (undocumented)
+export type DisputeTierLabel = (typeof DISPUTE_TIER_LABELS)[number];
 
 // @public
 export interface EventSink {
@@ -200,7 +287,7 @@ export const FinalReportContract: Contract<FinalReport>;
 
 // @public
 export const FinalReportSchema: z.ZodObject<{
-    status: z.ZodEnum<["completed", "failed", "cancelled", "escalated"]>;
+    status: z.ZodEnum<["ACHIEVED", "PARTIAL", "CEDED", "FAILED"]>;
     objective: z.ZodString;
     executiveSummary: z.ZodString;
     findings: z.ZodArray<z.ZodObject<{
@@ -270,8 +357,8 @@ export const FinalReportSchema: z.ZodObject<{
         hash: string;
         runtimeVersion: string;
     }>;
-}, "strip", z.ZodTypeAny, {
-    status: "completed" | "failed" | "cancelled" | "escalated";
+}, "strict", z.ZodTypeAny, {
+    status: "PARTIAL" | "ACHIEVED" | "CEDED" | "FAILED";
     objective: string;
     executiveSummary: string;
     findings: {
@@ -300,7 +387,7 @@ export const FinalReportSchema: z.ZodObject<{
         runtimeVersion: string;
     };
 }, {
-    status: "completed" | "failed" | "cancelled" | "escalated";
+    status: "PARTIAL" | "ACHIEVED" | "CEDED" | "FAILED";
     objective: string;
     executiveSummary: string;
     findings: {
@@ -331,6 +418,12 @@ export const FinalReportSchema: z.ZodObject<{
 }>;
 
 // @public
+export const FINISH_TAG_LABELS: readonly ["stop", "tool_calls", "length_truncated"];
+
+// @public (undocumented)
+export type FinishTagLabel = (typeof FINISH_TAG_LABELS)[number];
+
+// @public
 export interface ForwardResult {
     // (undocumented)
     body: string;
@@ -338,14 +431,43 @@ export interface ForwardResult {
     type: "ok" | "fail";
 }
 
+// @public
+export const GATE_LABEL_KEYS: {
+    readonly GATE: "gate";
+    readonly PRIORITY: "priority";
+};
+
+// @public
+export const GATE_LABELS: readonly ["brain", "hands"];
+
+// @public
+export const GATE_METRICS: {
+    readonly WAIT_MS: "runtime_gate_wait_ms";
+    readonly ACTIVE: "runtime_gate_active";
+    readonly WAITING: "runtime_gate_waiting";
+    readonly GRANTS_TOTAL: "runtime_gate_grants_total";
+    readonly REFUNDS_TOTAL: "runtime_gate_refunds_total";
+    readonly SATURATION_TOTAL: "runtime_gate_saturation_total";
+};
+
+// @public
+export class GateAbortedError extends AgentRuntimeError {
+    constructor(label: string);
+}
+
+// @public (undocumented)
+export type GateLabel = (typeof GATE_LABELS)[number];
+
+// @public
+export class GateSaturatedError extends AgentRuntimeError {
+    constructor(label: string, maxDepth: number);
+}
+
 // @public (undocumented)
 export type GrantLevel = z.infer<typeof GrantLevelSchema>;
 
 // @public
 export const GrantLevelSchema: z.ZodEnum<["auto", "acknowledged", "acknowledged-privileged", "manual"]>;
-
-// @public
-export function gutCertifiedContract(envelope: CertifiedContractEnvelope, catalogue: ToolkitCatalogue, globalKillSwitch: AbortSignal): Promise<ContractOutcome>;
 
 // @public
 export const HARD_TOOL_CEILING_MS = 30000;
@@ -376,6 +498,21 @@ export interface HumanProtocolRequest {
 }
 
 // @public
+export const INFERENCE_LABEL_KEYS: {
+    readonly MODEL: "model";
+    readonly FINISH_TAG: "finish_tag";
+};
+
+// @public
+export const INFERENCE_METRICS: {
+    readonly LATENCY_MS: "runtime_inference_ms";
+    readonly TOKENS_PROMPT_TOTAL: "runtime_tokens_prompt_total";
+    readonly TOKENS_EVAL_TOTAL: "runtime_tokens_eval_total";
+    readonly TURNS_TOTAL: "runtime_inference_turns_total";
+    readonly TRUNCATIONS_TOTAL: "runtime_inference_truncations_total";
+};
+
+// @public
 export class InferenceQualityError extends AgentRuntimeError {
     constructor(message: string, violations: string[], rawOutput?: string | undefined);
     // (undocumented)
@@ -383,6 +520,12 @@ export class InferenceQualityError extends AgentRuntimeError {
     // (undocumented)
     readonly violations: string[];
 }
+
+// @public
+export function isGateAbortedError(err: unknown): err is GateAbortedError;
+
+// @public
+export function isGateSaturatedError(err: unknown): err is GateSaturatedError;
 
 // @public
 export function isTransientTransport(err: unknown): boolean;
@@ -408,10 +551,19 @@ export interface Logger {
 // @public
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
-// Warning: (ae-internal-missing-underscore) The name "Metrics" should be prefixed with an underscore because the declaration is marked as @internal
-//
-// @internal (undocumented)
-export type Metrics = unknown;
+// @public
+export const MEMORY_METRICS: {
+    readonly DIGESTIONS_TOTAL: "runtime_digestions_total";
+    readonly EST_TOKENS: "runtime_ctx_est_tokens";
+    readonly LANE_LENGTH: "runtime_ctx_lane_length";
+    readonly PINS_TOTAL: "runtime_ctx_pins_total";
+};
+
+// @public (undocumented)
+export type MetricName = (typeof ALL_METRIC_NAMES)[number];
+
+// @public (undocumented)
+export type ModelLabel = string;
 
 // @public
 export interface MountedTools {
@@ -456,6 +608,15 @@ export class OllamaThoughtProcess implements ThoughtProcess {
     get identityTag(): string;
 }
 
+// @public
+export type Priority = "critical" | "normal";
+
+// @public
+export const PRIORITY_LABELS: readonly ["critical", "normal"];
+
+// @public (undocumented)
+export type PriorityLabel = (typeof PRIORITY_LABELS)[number];
+
 // @public (undocumented)
 export type Progress = z.infer<typeof ProgressSchema>;
 
@@ -473,6 +634,23 @@ export const ProgressSchema: z.ZodObject<{
     totalKnownTasks: number | null;
     currentActivity: string;
 }>;
+
+// @public
+export class RepeatCallBinder {
+    constructor(config?: RepeatCallBinderConfig);
+    check(intent: ToolCallRequest): {
+        allowed: true;
+    } | {
+        allowed: false;
+        nudge: string;
+    };
+    reset(): void;
+}
+
+// @public
+export interface RepeatCallBinderConfig {
+    maxConsecutiveIdentical?: number;
+}
 
 // @public
 export interface RequestSchedule {
@@ -501,7 +679,7 @@ export type Resolver = unknown;
 export type ResourceClass = z.infer<typeof ResourceClassSchema>;
 
 // @public
-export const ResourceClassSchema: z.ZodEnum<["local-cpu", "local-gpu", "external-network", "external-database", "filesystem-read", "filesystem-write"]>;
+export const ResourceClassSchema: z.ZodEnum<["local-cpu", "local-gpu", "gpu-inference", "local-sandbox", "external-network", "external-database", "filesystem-read", "filesystem-write"]>;
 
 // @public
 export interface ResourceLease {
@@ -518,6 +696,100 @@ export interface ResourceLease {
 }
 
 // @public
+export class ResourceSentinel {
+    constructor(cfg: {
+        maxParallelTools: number;
+        maxParallelInferences: number;
+        maxQueueDepth: number;
+    }, sink: EventSink);
+    brainGate(modelId: string, parallelism?: number, sink?: EventSink): ConcurrencyGate;
+    // (undocumented)
+    readonly defaultBrainParallelism: number;
+    // (undocumented)
+    readonly handsGate: ConcurrencyGate;
+}
+
+// @public
+export const RUN_EXIT_REASON_LABELS: readonly ["objective_met", "wall_clock_exhausted", "cog_steps_exhausted", "intents_exhausted", "operator_abort", "transport_failure", "synthesis_failure"];
+
+// @public
+export const RUN_LABEL_KEYS: {
+    readonly STATUS: "status";
+    readonly EXIT_REASON: "exit_reason";
+};
+
+// @public
+export const RUN_METRICS: {
+    readonly STATUS_TOTAL: "runtime_run_status_total";
+    readonly DURATION_MS: "runtime_run_ms";
+    readonly STEPS_TOTAL: "runtime_run_steps_total";
+    readonly INTENTS_TOTAL: "runtime_run_intents_total";
+    readonly SALVAGE_TOTAL: "runtime_run_salvage_total";
+};
+
+// @public
+export const RUN_STATUS_LABELS: readonly ["ACHIEVED", "PARTIAL", "CEDED", "FAILED"];
+
+// @public
+export interface RunBudgets {
+    hardIntentCount: number;
+    maxCogStepN: number;
+    maxTokensPerStep: number;
+    wallTimeCeilMs: number;
+}
+
+// @public (undocumented)
+export type RunExitReasonLabel = (typeof RUN_EXIT_REASON_LABELS)[number];
+
+// @public
+export interface RunResult {
+    // (undocumented)
+    finalReport: FinalReport | null;
+    // (undocumented)
+    intentsDispatched: number;
+    // (undocumented)
+    status: RunStatus;
+    // (undocumented)
+    steps: ExecutionStep[];
+    // (undocumented)
+    totalTokensIn: number;
+    // (undocumented)
+    totalTokensOut: number;
+    // (undocumented)
+    totalWallTimeMs: number;
+}
+
+// @public
+export type RunStatus = "ACHIEVED" | "PARTIAL" | "CEDED" | "FAILED";
+
+// @public (undocumented)
+export type RunStatusLabel = (typeof RUN_STATUS_LABELS)[number];
+
+// @public (undocumented)
+export type RuntimeEventEnvelope = z.infer<typeof RuntimeEventEnvelopeSchema>;
+
+// @public
+export const RuntimeEventEnvelopeSchema: z.ZodObject<{
+    v: z.ZodLiteral<1>;
+    runId: z.ZodString;
+    seq: z.ZodNumber;
+    tsMs: z.ZodNumber;
+    agentPath: z.ZodString;
+}, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+    v: z.ZodLiteral<1>;
+    runId: z.ZodString;
+    seq: z.ZodNumber;
+    tsMs: z.ZodNumber;
+    agentPath: z.ZodString;
+}, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+    v: z.ZodLiteral<1>;
+    runId: z.ZodString;
+    seq: z.ZodNumber;
+    tsMs: z.ZodNumber;
+    agentPath: z.ZodString;
+}, z.ZodTypeAny, "passthrough">>;
+
+// @public
 export interface SandboxLease {
     // (undocumented)
     auditTrailId: string;
@@ -531,13 +803,46 @@ export interface SandboxLease {
     tag: string;
 }
 
+// @public
+export const SEAL_RESULT_LABELS: readonly ["accepted", "violation"];
+
+// @public
+export const SEAL_VIOLATION_CLASSES: readonly ["FENCE_ESCAPE", "DIRECTIVE_SUSPECT", "SCHEMA", "CLOSURE"];
+
 // Warning: (ae-internal-missing-underscore) The name "Sealer" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal (undocumented)
 export type Sealer = unknown;
 
+// @public (undocumented)
+export type SealResultLabel = (typeof SEAL_RESULT_LABELS)[number];
+
+// @public (undocumented)
+export type SealViolationClass = (typeof SEAL_VIOLATION_CLASSES)[number];
+
+// @public
+export const SINK_METRICS: {
+    readonly EMITTED_TOTAL: "runtime_sink_emitted_total";
+    readonly DROPPED_TOTAL: "runtime_sink_dropped_total";
+    readonly LISTENER_ERRORS_TOTAL: "runtime_sink_listener_errors_total";
+};
+
 // @public
 export const SMART_LIMIT_BYTES = 48000;
+
+// @public
+export const SYNTHESIS_LABEL_KEYS: {
+    readonly RESULT: "result";
+    readonly VIOLATION_CLASS: "violation_class";
+};
+
+// @public
+export const SYNTHESIS_METRICS: {
+    readonly SEALS_TOTAL: "runtime_seals_total";
+    readonly VIOLATIONS_TOTAL: "runtime_seal_violations_total";
+    readonly LATENCY_MS: "runtime_seal_ms";
+    readonly RESEAL_ATTEMPTS_TOTAL: "runtime_seal_reseal_attempts_total";
+};
 
 // @public
 export interface ThoughtPortConfig {
@@ -568,6 +873,26 @@ export interface ThoughtProcess {
 export function toJsonSchema(schema: Contract<unknown> | AnyZodType): JSONSchema7;
 
 // @public
+export const TOOL_CLASS_LABELS: readonly ["search", "read", "write", "compute", "fetch", "validate", "lint", "audit", "local_sandbox", "external_network", "external_database", "gpu_inference"];
+
+// @public
+export const TOOL_FAILURE_CATEGORIES: readonly ["validation", "execution", "timeout", "denied", "unknown_tool"];
+
+// @public
+export const TOOL_LABEL_KEYS: {
+    readonly TOOL_CLASS: "tool_class";
+    readonly FAIL_CATEGORY: "fail_category";
+};
+
+// @public
+export const TOOL_METRICS: {
+    readonly LATENCY_MS: "runtime_tool_ms";
+    readonly FAILURES_TOTAL: "runtime_tool_failures_total";
+    readonly INVOCATIONS_TOTAL: "runtime_tool_invocations_total";
+    readonly BYTES_TRANSFERRED_TOTAL: "runtime_tool_bytes_transferred_total";
+};
+
+// @public
 export interface ToolCallRequest {
     // (undocumented)
     arguments: Record<string, unknown>;
@@ -576,6 +901,9 @@ export interface ToolCallRequest {
     // (undocumented)
     name: string;
 }
+
+// @public (undocumented)
+export type ToolClassLabel = (typeof TOOL_CLASS_LABELS)[number];
 
 // @public
 export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<string, unknown>> {
@@ -596,6 +924,7 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
     reflect?: (raw: ToolResult) => unknown;
     // (undocumented)
     resourceClass: ResourceClass;
+    targetModelId?: string;
     // (undocumented)
     timeoutMs?: number;
 }
@@ -605,7 +934,7 @@ export const ToolDefinitionSchema: z.ZodObject<{
     handle: z.ZodString;
     caption: z.ZodString;
     argsShape: z.ZodType<Contract<unknown>, z.ZodTypeDef, Contract<unknown>>;
-    resourceClass: z.ZodEnum<["local-cpu", "local-gpu", "external-network", "external-database", "filesystem-read", "filesystem-write"]>;
+    resourceClass: z.ZodEnum<["local-cpu", "local-gpu", "gpu-inference", "local-sandbox", "external-network", "external-database", "filesystem-read", "filesystem-write"]>;
     effects: z.ZodDefault<z.ZodEnum<["pure", "transactional"]>>;
     grantLevel: z.ZodDefault<z.ZodEnum<["auto", "acknowledged", "acknowledged-privileged", "manual"]>>;
     maxOutputChars: z.ZodOptional<z.ZodNumber>;
@@ -614,7 +943,7 @@ export const ToolDefinitionSchema: z.ZodObject<{
     handle: string;
     caption: string;
     argsShape: Contract<unknown>;
-    resourceClass: "local-cpu" | "local-gpu" | "external-network" | "external-database" | "filesystem-read" | "filesystem-write";
+    resourceClass: "local-cpu" | "local-gpu" | "gpu-inference" | "local-sandbox" | "external-network" | "external-database" | "filesystem-read" | "filesystem-write";
     effects: "pure" | "transactional";
     grantLevel: "auto" | "acknowledged" | "acknowledged-privileged" | "manual";
     maxOutputChars?: number | undefined;
@@ -623,12 +952,22 @@ export const ToolDefinitionSchema: z.ZodObject<{
     handle: string;
     caption: string;
     argsShape: Contract<unknown>;
-    resourceClass: "local-cpu" | "local-gpu" | "external-network" | "external-database" | "filesystem-read" | "filesystem-write";
+    resourceClass: "local-cpu" | "local-gpu" | "gpu-inference" | "local-sandbox" | "external-network" | "external-database" | "filesystem-read" | "filesystem-write";
     effects?: "pure" | "transactional" | undefined;
     grantLevel?: "auto" | "acknowledged" | "acknowledged-privileged" | "manual" | undefined;
     maxOutputChars?: number | undefined;
     timeoutMs?: number | undefined;
 }>;
+
+// @public
+export class ToolDispatcher {
+    constructor(catalogue: ToolkitCatalogue, globalKillSwitch: AbortSignal);
+    executeIntent(envelope: CertifiedContractEnvelope): Promise<ContractOutcome>;
+    validateIntent(intent: ToolCallRequest): {
+        valid: boolean;
+        error?: string;
+    };
+}
 
 // @public (undocumented)
 export type ToolEffect = z.infer<typeof ToolEffectSchema>;
@@ -654,6 +993,9 @@ export class ToolFailure extends AgentRuntimeError {
     readonly category: "validation" | "execution" | "timeout" | "denied" | "unknown_tool";
 }
 
+// @public (undocumented)
+export type ToolFailureCategory = (typeof TOOL_FAILURE_CATEGORIES)[number];
+
 // @public
 export class ToolInvocationError extends Error {
     constructor(message: string, category: "validation" | "execution" | "timeout" | "denied" | "unknown_tool");
@@ -663,7 +1005,7 @@ export class ToolInvocationError extends Error {
 
 // @public
 export class ToolkitCatalogue {
-    constructor(sink: EventSink);
+    constructor(sink: EventSink, sentinel?: ResourceSentinel | undefined);
     executeDirect<TArgs extends Record<string, unknown>>(handle: string, args: TArgs, lease: SandboxLease, cancelToken: AbortSignal): Promise<ToolResult>;
     forwardIntent(intent: ToolCallRequest, lease: SandboxLease, cancelToken: AbortSignal): Promise<ForwardResult>;
     get(handle: string): ToolDefinition | undefined;

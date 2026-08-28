@@ -140,9 +140,19 @@ export class OllamaThoughtProcess implements ThoughtProcess {
     abortSignal.addEventListener("abort", abortHandler);
 
     try {
+      // Check if already aborted before calling
+      if (abortSignal.aborted) {
+        throw new Error("Inference aborted by kill switch");
+      }
+
       // Call SDK - cast payload to satisfy SDK overloads
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const response = await this.remote.chat(payload as any);
+      
+      // Double check abort signal after the potentially long async call
+      if (aborted || abortSignal.aborted) {
+        throw new Error("Inference aborted by kill switch");
+      }
       
       // Handle response with type assertions for SDK version flexibility
       const r = response as unknown as SDKChatResponse;

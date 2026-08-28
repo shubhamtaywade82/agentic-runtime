@@ -183,12 +183,58 @@ export class ConcurrencyDeniedError extends AgentRuntimeError {
 }
 
 /**
+ * Concurrency gate acquisition aborted by kill switch.
+ * @public
+ */
+export class GateAbortedError extends AgentRuntimeError {
+  constructor(label: string) {
+    super(
+      `Aborted while awaiting ${label} compute lease.`,
+      "GATE_ABORTED",
+      undefined,
+    );
+    this.name = "GateAbortedError";
+  }
+}
+
+/**
+ * Concurrency gate queue depth exceeded.
+ * @public
+ */
+export class GateSaturatedError extends AgentRuntimeError {
+  constructor(label: string, maxDepth: number) {
+    super(
+      `Gate ${label} queue saturated (max depth: ${maxDepth}). Reconsider scope.`,
+      "GATE_SATURATED",
+      undefined,
+    );
+    this.name = "GateSaturatedError";
+  }
+}
+
+/**
  * Check if an error is a transient transport failure (retryable).
  * @public
  */
 export function isTransientTransport(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up|5\d\d/.test(`${err.name} ${err.message}`);
+}
+
+/**
+ * Check if an error is a gate abort error.
+ * @public
+ */
+export function isGateAbortedError(err: unknown): err is GateAbortedError {
+  return err instanceof GateAbortedError;
+}
+
+/**
+ * Check if an error is a gate saturation error.
+ * @public
+ */
+export function isGateSaturatedError(err: unknown): err is GateSaturatedError {
+  return err instanceof GateSaturatedError;
 }
 
 /**
@@ -271,13 +317,13 @@ export interface ExecutionStep {
  * @public
  */
 export const FinalReportSchema = z.object({
-  status: z.enum(["completed", "failed", "cancelled", "escalated"]),
+  status: z.enum(["ACHIEVED", "PARTIAL", "CEDED", "FAILED"]),
   objective: z.string(),
-  executiveSummary: z.string(),
+  executiveSummary: z.string().min(50),
   findings: z.array(
     z.object({
       claim: z.string(),
-      evidenceRef: z.string(),
+      evidenceRef: z.string().regex(/^receipt-[a-f0-9-]+$/),
       confidence: z.number().min(0).max(1),
     }),
   ),
@@ -303,7 +349,7 @@ export const FinalReportSchema = z.object({
     hash: z.string(),
     runtimeVersion: z.string(),
   }),
-});
+}).strict();
 
 /** @public */
 export type FinalReport = z.infer<typeof FinalReportSchema>;
@@ -335,6 +381,8 @@ export type BudgetConfig = z.infer<typeof BudgetConfigSchema>;
 export const ResourceClassSchema = z.enum([
   "local-cpu",
   "local-gpu",
+  "gpu-inference",
+  "local-sandbox",
   "external-network",
   "external-database",
   "filesystem-read",
@@ -403,6 +451,11 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
    * to enable safe re-dispatch (e.g., HTTP POST with same idempotency key).
    */
   idempotencyKey?: (args: TArgs) => string;
+  /**
+   * Required when resourceClass is "gpu-inference". Specifies the model ID
+   * to route the inference through the correct per-model concurrency gate.
+   */
+  targetModelId?: string;
 }
 
 /**

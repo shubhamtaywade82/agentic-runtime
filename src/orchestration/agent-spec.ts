@@ -1,5 +1,4 @@
-import type { ToolDefinition, SandboxLease, ContractOutcome } from "../core/types.js";
-import type { ThoughtProcess, RequestSchedule } from "../brain/adapter.js";
+import type { ThoughtProcess } from "../brain/adapter.js";
 import { ToolkitCatalogue } from "../hands/catalogue.js";
 import { ToolDispatcher } from "../hands/tool-dispatcher.js";
 import { ContextManager } from "../memory/context-manager.js";

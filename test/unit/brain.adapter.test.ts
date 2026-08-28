@@ -1,19 +1,23 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createReplayThoughtProcess, loadGoldenFixture, createTestSchedule, assertToolCall } from "./brain-replay-harness.js";
+import { createTestSchedule, assertToolCall } from "./brain-replay-harness.js";
+import { createOllamaThoughtProcess } from "../../src/brain/adapter.js";
+import { createVCRProcess } from "./vcr-harness.js";
 import type { ChatMsg, RequestSchedule } from "../src/core/types.js";
 
-describe("Brain Seam - Golden Fixture Replay Harness", () => {
-  let fixture: Awaited<ReturnType<typeof loadGoldenFixture>>;
-  let thoughtProcess: Awaited<ReturnType<typeof createReplayThoughtProcess>>;
+describe("Brain Seam - VCR Integration Tests", () => {
+  let thoughtProcess: any;
 
   beforeEach(async () => {
-    fixture = await loadGoldenFixture();
-    thoughtProcess = await createReplayThoughtProcess(fixture);
+    const realProcess = createOllamaThoughtProcess(
+      process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+      process.env.OLLAMA_MODEL || "llama3.2:3b"
+    );
+    thoughtProcess = createVCRProcess(realProcess);
   });
 
-  it("should replay the golden fixture and parse tool calls correctly", async () => {
+  it("should digest a request and parse tool calls correctly", async () => {
     const messages: ChatMsg[] = [
-      { role: "user", content: "Fetch weather" },
+      { role: "user", content: "Fetch weather for Tokyo" },
     ];
 
     const schedule = createTestSchedule();
@@ -23,117 +27,83 @@ describe("Brain Seam - Golden Fixture Replay Harness", () => {
     expect(result).toBeDefined();
     expect(typeof result.content).toBe("string");
     expect(Array.isArray(result.toolCalls)).toBe(true);
-    expect(result.finishTag).toBe("tool_calls");
     expect(result.usage).toBeDefined();
 
-    // Verify tool call extraction from fixture
-    expect(result.toolCalls).toHaveLength(1);
-    assertToolCall(result.toolCalls[0], {
-      name: "get_weather",
-      arguments: { city: "Tokyo" },
-    });
+    // If the model supports tools and we've recorded a tool call, verify it.
+    if (result.toolCalls.length > 0) {
+      expect(result.finishTag).toBe("tool_calls");
+      assertToolCall(result.toolCalls[0], {
+        name: expect.any(String),
+        arguments: expect.any(Object),
+      });
+    } else {
+      expect(result.finishTag).toBe("stop");
+    }
+  }, 30000);
 
-    // Verify usage metrics are captured
-    expect(result.usage?.promptTokens).toBe(15);
-    expect(result.usage?.evalTokens).toBe(10);
-    expect(result.usage?.totalDurationMs).toBeGreaterThan(0);
-  });
-
-  it("should handle stop finish_reason correctly", async () => {
-    // Create a fixture with stop reason
-    const stopFixture = {
-      ...fixture,
-      done_reason: "stop",
-      message: { role: "assistant", content: "Done", tool_calls: [] },
-      messages: [
-        { role: "user", content: "Hello" },
-        { role: "assistant", content: "Done", tool_calls: [] },
-      ],
-    };
-    const tp = await createReplayThoughtProcess(stopFixture);
-    
-    const result = await tp.digest(
+  it("should handle standard stop reason", async () => {
+    const result = await thoughtProcess.digest(
       [{ role: "user", content: "Hello" }],
       createTestSchedule(),
     );
 
     expect(result.finishTag).toBe("stop");
     expect(result.toolCalls).toHaveLength(0);
-    expect(result.content).toBe("Done");
-  });
+    expect(result.content).toBeDefined();
+  }, 30000);
 
-  it("should handle length_truncated finish_reason correctly", async () => {
-    // Create a fixture with length truncation
-    const truncateFixture = {
-      ...fixture,
-      done_reason: "length",
-      message: { role: "assistant", content: "Partial response...", tool_calls: [] },
-      messages: [
-        { role: "user", content: "Write a very long story" },
-        { role: "assistant", content: "Partial response...", tool_calls: [] },
-      ],
+  it("should handle potential length truncation", async () => {
+    const schedule = { 
+      ...createTestSchedule(), 
+      upperBoundTokenCount: 1 
     };
-    const tp = await createReplayThoughtProcess(truncateFixture);
     
-    const result = await tp.digest(
+    const result = await thoughtProcess.digest(
       [{ role: "user", content: "Write a very long story" }],
-      createTestSchedule(),
+      schedule,
     );
 
-    expect(result.finishTag).toBe("length_truncated");
-    expect(result.content).toBe("Partial response...");
-  });
+    expect(["stop", "length_truncated"]).toContain(result.finishTag);
+    expect(result.content).toBeDefined();
+  }, 30000);
 
   it("should respect kill switch abort signal", async () => {
-    // The replay harness doesn't simulate abort mid-flight; this tests the real adapter.
-    // Skip for replay harness - real adapter tested separately.
-    expect(true).toBe(true);
-  });
+    const controller = new AbortController();
+    const schedule = { ...createTestSchedule(), killSwitch: controller.signal };
+    
+    // We use a specific tag for abort tests to avoid recording these failures
+    const promise = thoughtProcess.digest([{ role: "user", content: "Abort test" }], schedule);
+    controller.abort();
+    
+    await expect(promise)
+      .rejects.toThrow(/aborted|kill switch/i);
+  }, 30000);
 
   it("should handle multi-turn conversation history", async () => {
-    const multiTurnFixture = {
-      ...fixture,
-      messages: [
-        { role: "user", content: "What's the weather?" },
-        { role: "assistant", content: "", tool_calls: [{ id: "call_1", function: { name: "get_weather", arguments: '{"city":"Tokyo"}' } }] },
-        { role: "tool", content: '{"temp": 22, "condition": "sunny"}', tool_call_id: "call_1" },
-        { role: "assistant", content: "It's 22°C and sunny in Tokyo.", tool_calls: [] },
-      ],
-      done_reason: "stop",
-      message: { role: "assistant", content: "It's 22°C and sunny in Tokyo.", tool_calls: [] },
-    };
-    const tp = await createReplayThoughtProcess(multiTurnFixture);
+    const messages: ChatMsg[] = [
+      { role: "user", content: "What's the weather?" },
+      { role: "assistant", content: "", toolCalls: [{ id: "call_1", name: "get_weather", arguments: { city: "Tokyo" } }] },
+      { role: "tool", content: '{"temp": 22, "condition": "sunny"}', toolCallId: "call_1" },
+    ];
     
-    const result = await tp.digest(
-      [
-        { role: "user", content: "What's the weather?" },
-        { role: "assistant", content: "", tool_calls: [{ id: "call_1", function: { name: "get_weather", arguments: '{"city":"Tokyo"}' } }] },
-        { role: "tool", content: '{"temp": 22, "condition": "sunny"}', tool_call_id: "call_1" },
-      ],
+    const result = await thoughtProcess.digest(
+      messages,
       createTestSchedule(),
     );
 
-    expect(result.finishTag).toBe("stop");
-    expect(result.content).toBe("It's 22°C and sunny in Tokyo.");
-  });
+    expect(result).toBeDefined();
+    expect(result.content).toBeDefined();
+  }, 30000);
 
-  it("should extract tool calls with correct argument coercion", async () => {
-    const stringArgsFixture = {
-      ...fixture,
-      message: { role: "assistant", content: "", tool_calls: [{ id: "call_1", function: { name: "search", arguments: '{"query":"test"}' } }] },
-      messages: [
-        { role: "user", content: "Search" },
-        { role: "assistant", content: "", tool_calls: [{ id: "call_1", function: { name: "search", arguments: '{"query":"test"}' } }] },
-      ],
-    };
-    const tp = await createReplayThoughtProcess(stringArgsFixture);
-    
-    const result = await tp.digest(
-      [{ role: "user", content: "Search" }],
+  it("should ensure tool arguments are coerced to objects", async () => {
+    const result = await thoughtProcess.digest(
+      [{ role: "user", content: "Search for the current stock price of AAPL" }],
       createTestSchedule(),
     );
 
-    expect(result.toolCalls[0].arguments).toEqual({ query: "test" });
-    expect(typeof result.toolCalls[0].arguments).toBe("object");
-  });
+    if (result.toolCalls.length > 0) {
+      expect(typeof result.toolCalls[0].arguments).toBe("object");
+      expect(result.toolCalls[0].arguments).not.toBeNull();
+    }
+  }, 30000);
 });

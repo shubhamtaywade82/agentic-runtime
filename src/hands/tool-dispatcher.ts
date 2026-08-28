@@ -3,10 +3,8 @@ import type {
   ToolCallRequest,
   SandboxLease,
   ContractOutcome,
-  ToolDefinition,
-  ToolResult,
 } from "../core/types.js";
-import { TransportFailure } from "../core/types.js";
+import { TransportFailure, isGateAbortedError, isGateSaturatedError } from "../core/types.js";
 
 /**
  * Certified contract envelope for execution.
@@ -80,7 +78,25 @@ export class ToolDispatcher {
     } catch (err) {
       const executionMs = performance.now() - startTime;
 
-      // 1. Handle SDK-level Transport Failures (e.g., Ollama node died mid-execution)
+      // 1. Handle Gate Aborted (operator cancel)
+      if (isGateAbortedError(err)) {
+        return {
+          status: "PARTIAL",
+          payload: `EXECUTION_ABORTED: Compute lease revoked (${err.message}).`,
+          telemetry: { executionMs, bytesTransferred: 0 },
+        };
+      }
+
+      // 2. Handle Gate Saturation (GPU saturated)
+      if (isGateSaturatedError(err)) {
+        return {
+          status: "FAILURE",
+          payload: `RESOURCE_SATURATION: ${err.message}. Reconsider scope or reduce fanout concurrency.`,
+          telemetry: { executionMs, bytesTransferred: 0 },
+        };
+      }
+
+      // 3. Handle SDK-level Transport Failures (e.g., Ollama node died mid-execution)
       if (err instanceof TransportFailure) {
         return {
           status: "FAILURE",
@@ -89,7 +105,7 @@ export class ToolDispatcher {
         };
       }
 
-      // 2. Handle Execution Abort (Budget exhausted or Operator kill-switch)
+      // 4. Handle Execution Abort (Budget exhausted or Operator kill-switch)
       if (err instanceof Error && err.name === "AbortError") {
         return {
           status: "PARTIAL",
@@ -98,7 +114,7 @@ export class ToolDispatcher {
         };
       }
 
-      // 3. Catch-all for sandbox panics
+      // 5. Catch-all for sandbox panics
       return {
         status: "FAILURE",
         payload: `SANDBOX_PANIC: Unhandled exception in tool execution boundary: ${err instanceof Error ? err.message : String(err)}`,

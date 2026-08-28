@@ -1,0 +1,11 @@
+{
+  "content": "How can I assist you today?",
+  "toolCalls": [],
+  "finishTag": "stop",
+  "usage": {
+    "promptTokens": 26,
+    "evalTokens": 8,
+    "totalDurationMs": 39696.461817,
+    "loadDurationMs": 37951.028174
+  }
+}
