@@ -97,7 +97,7 @@ export class OllamaThoughtProcess implements ThoughtProcess {
       options.temperature = 0.1; // Low entropy for deterministic tool calling
     }
     if (this.defaults.numCtx) {
-      options.num_ctx ??= this.defaults.numCtx;
+      options.num_ctx = this.defaults.numCtx;
     }
 
     // Build payload for SDK chat call
