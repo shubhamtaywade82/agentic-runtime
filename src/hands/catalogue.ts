@@ -8,8 +8,44 @@ import type {
   EventSink,
   JSONSchema7,
   Contract,
+  ResourceClass,
 } from "../core/types.js";
 import type { ResourceSentinel } from "../sentinel/index.js";
+import { TOOL_METRICS, TOOL_LABEL_KEYS } from "../observability/metrics.js";
+import type { ToolClassLabel } from "../observability/metrics.js";
+
+/**
+ * Map a resource class to the canonical tool-class metric label.
+ */
+function toolClassOf(resClass: ResourceClass | undefined): ToolClassLabel {
+  switch (resClass) {
+    case "local-sandbox":
+      return "local_sandbox";
+    case "external-network":
+      return "external_network";
+    case "external-database":
+      return "external_database";
+    case "gpu-inference":
+      return "gpu_inference";
+    case "filesystem-read":
+      return "read";
+    case "filesystem-write":
+      return "write";
+    default:
+      // local-cpu, local-gpu, unspecified
+      return "compute";
+  }
+}
+
+/**
+ * Fabricate an abort error that survives structural classification
+ * (`err.name === "AbortError"`) all the way to the dispatcher.
+ */
+function makeAbortError(): Error {
+  const err = new Error("Tool execution aborted by kill switch or budget guard");
+  err.name = "AbortError";
+  return err;
+}
 
 /**
  * Maximum bytes for tool output before truncation (context bleed mitigation).
@@ -103,10 +139,19 @@ export class ToolkitCatalogue {
    * Flow:
    * 1. Look up tool by name
    * 2. Validate arguments against Zod schema (strict)
-   * 3. Execute with timeout and abort signal
-   * 4. Apply reflect projection if defined
-   * 5. Fence output with <result_trust_level="untrusted-data">
-   * 6. Truncate if exceeds SMART_LIMIT_BYTES
+   * 3. Acquire concurrency leases (see gating policy below)
+   * 4. Execute with timeout and abort signal
+   * 5. Apply reflect projection if defined
+   * 6. Fence output with <result_trust_level="untrusted-data">
+   * 7. Truncate if exceeds SMART_LIMIT_BYTES
+   *
+   * Gating policy (audit fix - was: only local-sandbox + gpu-inference gated):
+   * - Sentinel wired: EVERY resource class occupies a hands-gate slot
+   *   (bounded total tool concurrency); gpu-inference tools additionally
+   *   occupy their per-model brain gate. Acquisition order is globally
+   *   consistent (hands then brain), so no hold-and-wait cycles are possible.
+   * - No sentinel (degraded mode): only the fail-closed classes reject
+   *   (local-sandbox, gpu-inference); the remaining classes run ungated.
    * @public
    */
   async forwardIntent(
@@ -135,52 +180,67 @@ export class ToolkitCatalogue {
       };
     }
 
-    // A3: Resource-class aware routing
+    // A3 + audit fix: resource-class aware routing for ALL classes.
     const resClass = tool.resourceClass ?? "external-network";
-    let release: (() => void) | undefined;
-    
+    const toolClass = toolClassOf(resClass);
+    const releases: Array<() => void> = [];
+
     try {
-      if (resClass === "local-sandbox") {
-        if (!this.sentinel) throw new ToolInvocationError("Sentinel required for local-sandbox tools", "denied");
-        release = await this.sentinel!.handsGate.acquire("normal", cancelToken);
-      } else if (resClass === "gpu-inference") {
-        if (!this.sentinel) throw new ToolInvocationError("Sentinel required for gpu-inference tools", "denied");
-        if (!tool.targetModelId) {
-          throw new ToolInvocationError(`Tool ${tool.handle} requires targetModelId for gpu-inference`, "denied");
+      if (this.sentinel) {
+        // Bounded total tool concurrency for every resource class.
+        releases.push(await this.sentinel.handsGate.acquire("normal", cancelToken));
+        if (resClass === "gpu-inference") {
+          if (!tool.targetModelId) {
+            throw new ToolInvocationError(`Tool ${tool.handle} requires targetModelId for gpu-inference`, "denied");
+          }
+          // Consistent hands-before-brain acquisition order (deadlock-free).
+          releases.push(
+            await this.sentinel.brainGate(tool.targetModelId, undefined, this.sink).acquire("normal", cancelToken),
+          );
         }
-        release = await this.sentinel!.brainGate(tool.targetModelId, undefined, this.sink).acquire("normal", cancelToken);
+      } else {
+        // Degraded mode: fail-closed classes still refuse to run ungated.
+        if (resClass === "local-sandbox") {
+          throw new ToolInvocationError("Sentinel required for local-sandbox tools", "denied");
+        }
+        if (resClass === "gpu-inference") {
+          throw new ToolInvocationError("Sentinel required for gpu-inference tools", "denied");
+        }
       }
-      // external-network: no gate (assumed rate-limited internally)
 
       const startedAt = performance.now();
       try {
-        // Execute with deadline guard
+        // Execute with deadline guard (timeout + abort, no leaked timers)
         const raw = await this.guardDeadlines(
           () => tool.invoke(verified.data, lease, cancelToken),
           tool.timeoutMs ?? HARD_TOOL_CEILING_MS,
+          cancelToken,
         );
 
         // Apply observation projection (reflect) for context compaction
         const inspectable = tool.reflect ? tool.reflect(raw) : raw;
-        const serialized = typeof inspectable === "string" 
-          ? inspectable 
+        const serialized = typeof inspectable === "string"
+          ? inspectable
           : JSON.stringify(inspectable, null, 2);
 
-        // Fence output - neutralize fence closing tags (anti break-out vector)
-        const safeBody = serialized
-          .slice(0, SMART_LIMIT_BYTES)
-          .replace(/<\/?result_trust_level[^>]*>/g, "");
-        
-        const truncatedNote = serialized.length > SMART_LIMIT_BYTES
-          ? `\n[Truncated ${serialized.length} → ${SMART_LIMIT_BYTES} bytes.]`
+        // Fence output - neutralize fence tags over the FULL serialization
+        // BEFORE truncating. The historical slice-then-strip order could cut
+        // a fence tag at the byte boundary, leaving a live half-tag inside
+        // the fenced body (a break-out vector).
+        const stripped = serialized.replace(/<\/?result_trust_level[^>]*>/g, "");
+        const truncated = stripped.length > SMART_LIMIT_BYTES;
+        const safeBody = truncated ? stripped.slice(0, SMART_LIMIT_BYTES) : stripped;
+        const truncatedNote = truncated
+          ? `\n[Truncated ${stripped.length} -> ${SMART_LIMIT_BYTES} bytes.]`
           : "";
 
         const executionMs = performance.now() - startedAt;
-        this.sink.emit("tool:result", {
-          handle: tool.handle,
+        this.sink.emit(TOOL_METRICS.INVOCATIONS_TOTAL, {
+          tool: tool.handle,
+          [TOOL_LABEL_KEYS.TOOL_CLASS]: toolClass,
           ms: executionMs,
           bytes: serialized.length,
-          truncated: serialized.length > SMART_LIMIT_BYTES,
+          truncated,
         });
 
         return {
@@ -190,11 +250,19 @@ export class ToolkitCatalogue {
 
       } catch (err) {
         const executionMs = performance.now() - startedAt;
+
+        // Aborts propagate: the dispatcher classifies them as PARTIAL
+        // (operator kill switch / budget guard), not as tool failures.
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
+
         const failure = err instanceof ToolInvocationError ? err : new ToolInvocationError(String(err), "execution");
-        
-        this.sink.emit("tool:failure", {
-          handle: tool.handle,
-          kind: failure.category,
+
+        this.sink.emit(TOOL_METRICS.FAILURES_TOTAL, {
+          tool: tool.handle,
+          [TOOL_LABEL_KEYS.TOOL_CLASS]: toolClass,
+          [TOOL_LABEL_KEYS.FAIL_CATEGORY]: failure.category,
           ms: executionMs,
         });
 
@@ -204,7 +272,7 @@ export class ToolkitCatalogue {
         };
       }
     } finally {
-      release?.();
+      for (const release of releases.reverse()) release();
     }
   }
 
@@ -238,6 +306,7 @@ export class ToolkitCatalogue {
       const output = await this.guardDeadlines(
         () => tool.invoke(verified.data, lease, cancelToken),
         tool.timeoutMs ?? HARD_TOOL_CEILING_MS,
+        cancelToken,
       );
       const executionMs = performance.now() - startedAt;
 
@@ -266,19 +335,54 @@ export class ToolkitCatalogue {
   }
 
   /**
-   * Guard execution with deadline and abort signal.
+   * Guard execution with a hard deadline and the external abort signal.
+   *
+   * Both guards are fully cleaned up when either side settles:
+   * - the deadline timer is cleared (the historical implementation leaked one
+   *   pending 30s Timeout per tool call), and
+   * - the abort listener is removed.
+   *
+   * Aborts reject with a structural AbortError so callers can distinguish
+   * cancellation (operator kill switch / budget guard) from tool failure.
    */
-  private guardDeadlines<R>(fn: () => Promise<R>, ceilingMs: number): Promise<R> {
-    const deadline = Promise.race([
-      fn(),
-      new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new ToolInvocationError("exceeded sandbox lease period", "timeout")), ceilingMs)
-      ),
-    ]);
+  private guardDeadlines<R>(
+    fn: () => Promise<R>,
+    ceilingMs: number,
+    cancelToken: AbortSignal,
+  ): Promise<R> {
+    return new Promise<R>((resolve, reject) => {
+      if (cancelToken.aborted) {
+        reject(makeAbortError());
+        return;
+      }
 
-    // Also respect external abort signal
-    // Note: This is a simplified version; real implementation would wire AbortSignal
-    return deadline;
+      let settled = false;
+      const cleanup: Array<() => void> = [];
+      const settle = (action: () => void) => {
+        if (settled) return;
+        settled = true;
+        for (const fn of cleanup) fn();
+        action();
+      };
+
+      const timer = setTimeout(
+        () =>
+          settle(() =>
+            reject(new ToolInvocationError("exceeded sandbox lease period", "timeout")),
+          ),
+        ceilingMs,
+      );
+      const onAbort = () => settle(() => reject(makeAbortError()));
+      cleanup.push(() => clearTimeout(timer));
+      cleanup.push(() => cancelToken.removeEventListener("abort", onAbort));
+
+      cancelToken.addEventListener("abort", onAbort, { once: true });
+
+      fn().then(
+        (value) => settle(() => resolve(value)),
+        (err) => settle(() => reject(err)),
+      );
+    });
   }
 }
 

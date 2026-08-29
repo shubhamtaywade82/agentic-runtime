@@ -15,6 +15,7 @@ import {
   InferenceQualityError,
 } from "../../src/core/types.js";
 import type { EventSink } from "../../src/core/types.js";
+import { GATE_METRICS, GATE_LABEL_KEYS } from "../../src/observability/metrics.js";
 
 function recordingSink(): { sink: EventSink; events: Array<{ name: string; payload: Record<string, unknown> }> } {
   const events: Array<{ name: string; payload: Record<string, unknown> }> = [];
@@ -33,23 +34,27 @@ function neverAbort(): AbortSignal {
 }
 
 describe("ConcurrencyGate - A7 fast-path telemetry", () => {
-  it("emits gate:wait with waitedMs=0 on the fast path (healthy runs stay visible)", async () => {
+  it("emits runtime_gate_wait_ms with waitedMs=0 on the fast path (healthy runs stay visible)", async () => {
     const { sink, events } = recordingSink();
     const gate = new ConcurrencyGate(1, 10, "hands", sink);
 
     const release = await gate.acquire("critical", neverAbort());
 
-    const wait = events.find((e) => e.name === "gate:wait");
-    const grant = events.find((e) => e.name === "gate:grant");
+    const wait = events.find((e) => e.name === GATE_METRICS.WAIT_MS);
+    const grant = events.find((e) => e.name === GATE_METRICS.GRANTS_TOTAL);
     expect(wait).toBeDefined();
-    expect(wait?.payload).toMatchObject({ label: "hands", priority: "critical", waitedMs: 0 });
+    expect(wait?.payload).toMatchObject({
+      [GATE_LABEL_KEYS.GATE]: "hands",
+      [GATE_LABEL_KEYS.PRIORITY]: "critical",
+      waitedMs: 0,
+    });
     expect(grant).toBeDefined();
-    expect(grant?.payload).toMatchObject({ label: "hands", active: 1 });
+    expect(grant?.payload).toMatchObject({ [GATE_LABEL_KEYS.GATE]: "hands", active: 1 });
 
     release();
   });
 
-  it("emits gate:wait with the real queue delay on the congested path", async () => {
+  it("emits runtime_gate_wait_ms with the real queue delay on the congested path", async () => {
     const { sink, events } = recordingSink();
     const gate = new ConcurrencyGate(1, 10, "hands", sink);
 
@@ -60,12 +65,23 @@ describe("ConcurrencyGate - A7 fast-path telemetry", () => {
     first();
 
     const release = await queued;
-    const wait = events.find((e) => e.name === "gate:wait");
+    const wait = events.find((e) => e.name === GATE_METRICS.WAIT_MS);
     expect(wait).toBeDefined();
     expect(wait?.payload.waitedMs).toBeGreaterThanOrEqual(0);
-    // Both fast-path and queued acquisitions emit exactly one gate:wait each.
-    expect(events.filter((e) => e.name === "gate:wait")).toHaveLength(2);
+    // Both fast-path and queued acquisitions emit exactly one wait sample each.
+    expect(events.filter((e) => e.name === GATE_METRICS.WAIT_MS)).toHaveLength(2);
     release();
+  });
+
+  it("emits runtime_gate_saturation_total when the queue ceiling rejects", async () => {
+    const { sink, events } = recordingSink();
+    const gate = new ConcurrencyGate(1, 0, "hands", sink);
+
+    await expect(gate.acquire("normal", neverAbort())).rejects.toThrow(GateSaturatedError);
+
+    const saturation = events.find((e) => e.name === GATE_METRICS.SATURATION_TOTAL);
+    expect(saturation).toBeDefined();
+    expect(saturation?.payload).toMatchObject({ [GATE_LABEL_KEYS.GATE]: "hands", maxDepth: 0 });
   });
 
   it("counts saturations and grants in lifetime stats", async () => {
