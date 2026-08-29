@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChatMsg, RequestSchedule, AssistantTurn, ToolCallRequest } from "../src/core/types.js";
 import type { ThoughtProcess } from "../src/brain/adapter.js";
 
-// Replay harness types
+// Replay harness types - mirrors the SDK 1.x ChatResponse shape
+// (a single `message` object; /api/chat never returns a conversation array).
 export interface ReplayFixture {
   model: string;
   created_at: string;
   message: { role: string; content: string; tool_calls?: any[] };
-  messages: Array<{ role: string; content: string; tool_calls?: any[] }>;
   done: boolean;
   done_reason: string;
   total_duration: number;
@@ -32,7 +32,7 @@ export function createMockOllamaClient(fixture: ReplayFixture): MockOllamaClient
     chat: vi.fn().mockResolvedValue({
       model: fixture.model,
       created_at: fixture.created_at,
-      messages: fixture.messages,
+      message: fixture.message,
       done: fixture.done,
       done_reason: fixture.done_reason,
       total_duration: fixture.total_duration,
@@ -52,7 +52,7 @@ export function createMockOllamaClient(fixture: ReplayFixture): MockOllamaClient
  */
 export function createReplayThoughtProcess(fixture: ReplayFixture): ThoughtProcess {
   const mockClient = createMockOllamaClient(fixture);
-  
+
   return {
     identityTag: `replay:${fixture.model}`,
     async digest(messages: ChatMsg[], schedule: RequestSchedule): Promise<AssistantTurn> {
@@ -63,9 +63,7 @@ export function createReplayThoughtProcess(fixture: ReplayFixture): ThoughtProce
         stream: false,
       });
 
-      const assistantMsg = response.messages
-        ?.filter((m: any) => m.role === "assistant")
-        .pop() ?? response.messages?.[response.messages.length - 1];
+      const assistantMsg = response.message ?? null;
 
       if (!assistantMsg) {
         throw new Error("No assistant message in replay fixture");
@@ -94,8 +92,9 @@ export function createReplayThoughtProcess(fixture: ReplayFixture): ThoughtProce
         usage: {
           promptTokens: response.prompt_eval_count ?? -1,
           evalTokens: response.eval_count ?? -1,
-          totalDurationMs: response.total_duration ?? -1,
-          loadDurationMs: response.load_duration ?? -1,
+          // Native Ollama durations are in nanoseconds.
+          totalDurationMs: typeof response.total_duration === "number" ? response.total_duration / 1_000_000 : -1,
+          loadDurationMs: typeof response.load_duration === "number" ? response.load_duration / 1_000_000 : -1,
         },
       };
     },

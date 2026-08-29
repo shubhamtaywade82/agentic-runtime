@@ -1,10 +1,12 @@
 import type {
+  AssistantTurn,
   ExecutionStep,
   FinalReport,
   ToolCallRequest,
   ContractOutcome,
   ThoughtProcess,
   RequestSchedule,
+  SandboxLease,
   ToolResult,
 } from "../core/types.js";
 import {
@@ -13,13 +15,14 @@ import {
   isBudgetExhaustedError,
   isCognitiveOverloadError,
   isGateAbortedError,
+  isGateSaturatedError,
   isRunAbortedError,
   RunAbortedError,
 } from "../core/types.js";
 import { ContextManager } from "../memory/context-manager.js";
 import { ToolDispatcher } from "../hands/tool-dispatcher.js";
 import { RepeatCallBinder } from "../loop/repeat-call-binder.js";
-import { ToolkitCatalogue, createTestLease } from "../hands/catalogue.js";
+import { ToolkitCatalogue, SMART_LIMIT_BYTES } from "../hands/catalogue.js";
 import { createCertifiedEnvelope } from "../hands/tool-dispatcher.js";
 import type { ResourceSentinel } from "../sentinel/index.js";
 import { SynthesisEngine } from "../synthesis/sealer.js";
@@ -86,6 +89,11 @@ export interface RunResult {
  * Implements the ReAct loop with budgets, deduplication, and terminal
  * sealing. Replaces the former "ChiefFlywheel" with standard naming.
  *
+ * Sentinel wiring (audit fix): when a sentinel is supplied, every loop
+ * inference acquires a per-model brain-gate lease keyed by the brain's
+ * identityTag, bounding inference concurrency and making
+ * sentinelAcquisitions real telemetry instead of a hardcoded zero.
+ *
  * Terminal sealing contract:
  * - ACHIEVED / PARTIAL / CEDED runs receive a model-authored seal via the
  *   SynthesisEngine (No-Tools Guarantee, grammar-constrained).
@@ -113,6 +121,7 @@ export class AgentRunner {
   private intentsDispatched = 0;
   private totalTokensIn = 0;
   private totalTokensOut = 0;
+  private readonly runId = crypto.randomUUID();
 
   constructor(
     brain: ThoughtProcess,
@@ -170,7 +179,7 @@ export class AgentRunner {
         }
 
         // Check budget exhaustion
-        this.checkBudgets(stepIndex);
+        this.checkBudgets();
 
         // Schedule context digestion
         await this.contextManager.maybeDigest(JSON.stringify({ stepIndex }));
@@ -179,8 +188,20 @@ export class AgentRunner {
         const schedule = this.buildSchedule(stepIndex);
         const stepStart = performance.now();
 
-        // Probe for tool calls
-        const turn = await this.brain.digest(this.contextManager.lane, schedule);
+        // Probe for tool calls. Sentinel wiring (audit fix): loop inferences
+        // flow through the per-model brain gate when a sentinel is supplied,
+        // so inference concurrency is actually bounded by hardware config.
+        const release = this.sentinel
+          ? await this.sentinel
+              .brainGate(this.brain.identityTag)
+              .acquire("normal", this.killSwitch.signal)
+          : null;
+        let turn: AssistantTurn;
+        try {
+          turn = await this.brain.digest(this.contextManager.lane, schedule);
+        } finally {
+          release?.();
+        }
 
         // Track tokens
         if (turn.usage) {
@@ -203,21 +224,27 @@ export class AgentRunner {
         const toolResults: ToolResult[] = [];
 
         for (const toolCall of turn.toolCalls) {
-          // Check budgets
-          if (++this.intentsDispatched > this.budgets.hardIntentCount) {
-            throw new BudgetExhaustedError("intents", this.intentsDispatched, this.budgets.hardIntentCount);
-          }
-
-          // Deduplication check
+          // Deduplication check FIRST (audit fix): governance nudges never
+          // dispatch, so they must not consume the hard intent budget.
           const binderResult = this.binder.check(toolCall);
           if (!binderResult.allowed) {
             this.contextManager.append({ role: "user", content: binderResult.nudge });
             continue;
           }
 
-          // Execute tool
+          // Budget check counts only calls that will actually dispatch.
+          if (this.intentsDispatched >= this.budgets.hardIntentCount) {
+            throw new BudgetExhaustedError(
+              "intents",
+              this.intentsDispatched + 1,
+              this.budgets.hardIntentCount,
+            );
+          }
+          this.intentsDispatched++;
+
+          // Execute tool (audit fix: a run-scoped lease, not a test lease)
           const envelope = createCertifiedEnvelope(toolCall, {
-            lease: createTestLease(),
+            lease: this.mintRunLease(),
             certifiedAt: Date.now(),
             attempt: 1,
           });
@@ -254,6 +281,14 @@ export class AgentRunner {
           runStatus = "ACHIEVED";
           break;
         }
+      }
+
+      // The loop exhausted its step budget without a terminal answer.
+      // CognitiveOverloadError is now reachable (audit fix: the in-loop
+      // check was dead code - the for-condition made it impossible to hit).
+      // classifyError maps it to PARTIAL: completed work stays salvageable.
+      if (runStatus !== "ACHIEVED") {
+        throw new CognitiveOverloadError(this.steps.length, this.budgets.maxCogStepN);
       }
     } catch (err) {
       fatalErr = err;
@@ -326,16 +361,28 @@ export class AgentRunner {
       entropyOverride: 0.1,
       upperBoundTokenCount: this.budgets.maxTokensPerStep,
       killSwitch: this.killSwitch.signal,
-      transcriptDigest: `run-${this.startTime}-step-${stepIndex}`,
+      transcriptDigest: `run-${this.runId}-step-${stepIndex}`,
     };
   }
 
-  private checkBudgets(stepIndex: number): void {
-    const elapsed = performance.now() - this.startTime;
+  /**
+   * Mint a run-scoped sandbox lease (audit fix: the runner used to hand
+   * every tool call a fabricated test lease tagged "test-scratch").
+   * Lease lifetime tracks the remaining wall-clock budget.
+   */
+  private mintRunLease(): SandboxLease {
+    const remainingMs = this.budgets.wallTimeCeilMs - (performance.now() - this.startTime);
+    return {
+      tag: `run:${this.runId}`,
+      leaseMs: Math.max(1, Math.round(remainingMs)),
+      maxResultBytes: SMART_LIMIT_BYTES,
+      auditTrailId: crypto.randomUUID(),
+      canClobberDisc: false,
+    };
+  }
 
-    if (stepIndex >= this.budgets.maxCogStepN) {
-      throw new CognitiveOverloadError(stepIndex, this.budgets.maxCogStepN);
-    }
+  private checkBudgets(): void {
+    const elapsed = performance.now() - this.startTime;
 
     if (elapsed >= this.budgets.wallTimeCeilMs) {
       throw new BudgetExhaustedError("wallclock", elapsed, this.budgets.wallTimeCeilMs);
@@ -362,11 +409,13 @@ export class AgentRunner {
    * - External termination (kill switch) always wins: whatever error
    *   surfaced, the operator pulled the plug - that is CEDED, not FAILED.
    * - Internal budget exhaustion is PARTIAL: completed work is salvageable.
+   *   This includes brain-gate saturation (resource ceiling, not corruption).
    * - Everything else is FAILED.
    */
   private classifyError(err: unknown): RunStatus {
     if (this.killSwitch.signal.aborted) return "CEDED";
     if (isRunAbortedError(err) || isGateAbortedError(err)) return "CEDED";
+    if (isGateSaturatedError(err)) return "PARTIAL";
     if (isCognitiveOverloadError(err) || isBudgetExhaustedError(err)) return "PARTIAL";
     return "FAILED";
   }
