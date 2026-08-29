@@ -231,11 +231,33 @@ export class RunAbortedError extends AgentRuntimeError {
 
 /**
  * Check if an error is a transient transport failure (retryable).
+ *
+ * Detection is structural, in priority order:
+ * 1. SDK typed errors carry a `retryable: true` flag (duck-typed, so core
+ *    stays free of SDK imports) - no message sniffing needed.
+ * 2. Well-known transport error codes/signals in the error's name or
+ *    message (ECONNREFUSED, ETIMEDOUT, "fetch failed", ...).
+ * 3. The same checks against the error's `cause` chain (Node wraps
+ *    transport failures, e.g. `fetch failed` caused by ECONNREFUSED).
  * @public
  */
 export function isTransientTransport(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up|5\d\d/.test(`${err.name} ${err.message}`);
+  return classifyTransient(err, 0);
+}
+
+const TRANSIENT_SIGNAL = /\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|fetch failed|OllamaNetworkError|5\d\d)\b/i;
+
+function classifyTransient(err: unknown, depth: number): boolean {
+  if (depth > 3 || !(err instanceof Error)) return false;
+
+  // 1. SDK typed errors: structural retryable flag.
+  if ((err as { retryable?: unknown }).retryable === true) return true;
+
+  // 2. Name/message signal sniffing (fallback for untyped transport errors).
+  if (TRANSIENT_SIGNAL.test(`${err.name} ${err.message}`)) return true;
+
+  // 3. Cause chain: Node's fetch wraps the real socket error.
+  return classifyTransient((err as { cause?: unknown }).cause, depth + 1);
 }
 
 /**

@@ -99,6 +99,39 @@ describe("Core Types - Error Hierarchy", () => {
       expect(isTransientTransport("not an error")).toBe(false);
     });
 
+    it("isTransientTransport detects wrapped transport failures (cause chain + SDK retryable flag)", () => {
+      // Node fetch wraps the socket error: "fetch failed" caused by ECONNREFUSED.
+      const wrapped = new Error("fetch failed", {
+        cause: new Error("connect ECONNREFUSED 127.0.0.1:11434"),
+      });
+      expect(isTransientTransport(wrapped)).toBe(true);
+
+      // Bare "fetch failed" with no cause is still transport-shaped.
+      expect(isTransientTransport(new Error("fetch failed"))).toBe(true);
+
+      // SDK typed errors carry a structural retryable flag (duck-typed, no
+      // SDK import needed in core).
+      const sdkError = Object.assign(new Error("node unreachable"), {
+        retryable: true,
+      });
+      expect(isTransientTransport(sdkError)).toBe(true);
+      const sdkFatal = Object.assign(new Error("bad request"), {
+        retryable: false,
+      });
+      expect(isTransientTransport(sdkFatal)).toBe(false);
+
+      // "fetch failed" must be classified as TRANSPORT, not quality - the
+      // adapter maps non-transient errors to InferenceQualityError.
+      expect(isTransientTransport(new Error("Fetch failed"))).toBe(true);
+
+      // No false positives from numbers embedded in messages (e.g. ports).
+      expect(isTransientTransport(new Error("listening on port 5123"))).toBe(false);
+
+      // Deep cause chains are bounded.
+      const deep = new Error("a", { cause: new Error("b", { cause: new Error("c") }) });
+      expect(isTransientTransport(deep)).toBe(false);
+    });
+
     it("isGateAbortedError should correctly identify GateAbortedError", () => {
       expect(isGateAbortedError(new GateAbortedError("test"))).toBe(true);
       expect(isGateAbortedError(new Error("abort"))).toBe(false);

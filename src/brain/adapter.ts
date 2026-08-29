@@ -11,6 +11,7 @@ import {
   RunAbortedError,
   TransportFailure,
   isInferenceQualityError,
+  isTransientTransport,
 } from "../core/types.js";
 
 /**
@@ -242,15 +243,6 @@ export class OllamaThoughtProcess implements ThoughtProcess {
       abortSignal.removeEventListener("abort", abortHandler);
     }
   }
-}
-
-/**
- * Check if an error is a transient transport failure (retryable).
- * Delegates to core/types for single source of truth.
- */
-function isTransientTransport(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up|5\d\d/.test(`${err.name} ${err.message}`);
 }
 
 /**
