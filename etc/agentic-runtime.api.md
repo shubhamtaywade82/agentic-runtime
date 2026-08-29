@@ -767,6 +767,7 @@ export class RepeatCallBinder {
 // @public
 export interface RepeatCallBinderConfig {
     maxConsecutiveIdentical?: number;
+    windowSize?: number;
 }
 
 // @public
@@ -847,6 +848,7 @@ export class ResourceSentinel {
         maxParallelTools: number;
         maxParallelInferences: number;
         maxQueueDepth: number;
+        brainMaxQueueDepth?: number;
     }, sink: EventSink);
     aggregateStats(): {
         grants: number;

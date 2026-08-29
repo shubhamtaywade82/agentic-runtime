@@ -7,24 +7,51 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  verify:
+    name: lint + build + test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         node-version: [20.x, 22.x]
-        zod-version: ['^3.22.0', '^3.24.0']
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v2
+      - uses: pnpm/action-setup@v4
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
-      - name: Install & Test
-        run: |
-          pnpm add -D zod@${{ matrix.zod-version }}
-          pnpm install --frozen-lockfile
-          pnpm lint
-          pnpm build
-          pnpm test
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Build (tsup + api-extractor baseline check)
+        run: pnpm build
+      - name: Test
+        run: pnpm test
+
+  zod-compat:
+    name: zod ${{ matrix.zod-version }} compatibility (Node 22)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        zod-version: ['3.22.0', '3.24.0']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Pin zod ^${{ matrix.zod-version }}
+        run: pnpm add -D zod@^${{ matrix.zod-version }}
+      # api-extractor is intentionally skipped on this leg: DTS inference can
+      # drift across zod minors; the frozen baseline is validated on the
+      # default-matrix verify leg above.
+      - name: Test
+        run: pnpm test

@@ -2,11 +2,21 @@ import { z } from "zod";
 
 /**
  * Observability Metric Constants
- * 
+ *
  * This module defines the canonical metric names and label enums for the
  * observability bus. All metrics emitted by the runtime MUST use these constants
  * to prevent cardinality explosion and ensure semantic consistency.
- * 
+ *
+ * Emission convention (v0.1):
+ * - Numeric telemetry (counters, gauges, histograms) is emitted under the
+ *   canonical names below. The sentinel gate (`GATE_METRICS.*`) and the hands
+ *   layer (`TOOL_METRICS.*`) comply; payloads carry the canonical label keys
+ *   (`GATE_LABEL_KEYS`, `TOOL_LABEL_KEYS`, ...).
+ * - Lifecycle/domain events (e.g. "seal:attempt", "dispute:plan") use
+ *   `domain:event` names and are NOT metrics. Mapping them onto
+ *   `DISPUTE_METRICS` / `SYNTHESIS_METRICS` counters is a tracked v0.2
+ *   migration item (see KNOWN_LIMITATIONS.md #16).
+ *
  * Changing any value here constitutes a BREAKING CHANGE (MAJOR version bump)
  * as it affects operator dashboards, alerts, and replay consumers.
  * @public

@@ -187,6 +187,32 @@ This document catalogs the deliberate engineering trade-offs and known limitatio
 
 ---
 
+## 16. Lifecycle Events Not Mapped to Canonical Metric Names
+
+**Scope:** The sentinel gate and hands layers emit the canonical metric names from `observability/metrics.ts` (`GATE_METRICS.*`, `TOOL_METRICS.*`) with canonical label keys. The dispute and synthesis layers, however, emit lifecycle events under `domain:event` names (`dispute:plan`, `dispute:escalated`, `seal:attempt`, `seal:sealed`, `seal:degraded`) that have no counterpart emission under `DISPUTE_METRICS.*` / `SYNTHESIS_METRICS.*`.
+
+**Rationale:** Those layers were implemented after the metric contract froze their counter names; their events carry full structured payloads (plans, violation lists) that do not decompose cleanly into counter increments without a dual-emission convention.
+
+**Impact:** Operators aggregating `runtime_disputes_total` / `runtime_seals_total` from the sink see zero traffic today; the dispute/seal signals live only on the lifecycle event names.
+
+**Migration (v0.2):** Emit canonical counter samples (`DISPUTE_METRICS.TOTAL`, `SYNTHESIS_METRICS.SEALS_TOTAL` / `VIOLATIONS_TOTAL`) alongside the lifecycle events, and document the dual-emission convention in `metrics.ts`.
+
+---
+
+## 17. Golden Fixture Is Synthetic, Not a Live Capture
+
+**Scope:** `test/fixtures/chat-response.sample.json` is a hand-authored, SDK-shaped `ChatResponse` sample (marked `_provenance`). It is schema-faithful but was never captured from a live Ollama daemon.
+
+**Rationale:** Fixture capture requires a running daemon with the exact model (`qwen3:8b`) provisioned — unavailable in CI and offline environments.
+
+**Impact:** The fixture validates response parsing (tool-call extraction, ns→ms conversion, finish-tag mapping) but cannot surface daemon-side shape quirks (extra fields, `done_reason` variants, streaming edge cases).
+
+**Mitigation:** `OLLAMA_SMOKE=1 UPDATE_GOLDEN=1 pnpm test:smoke` replaces the fixture with a live capture in one command; the pre-freeze checklist in `PACKAGING.md` tracks this as an open item.
+
+**Migration (v0.1.0 freeze):** Run the capture command against the reference daemon before tagging.
+
+---
+
 ---
 
 **End of Known Limitations.** 

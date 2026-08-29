@@ -75,7 +75,7 @@ export interface ForwardResult {
  * - Tool registration and manifest generation (for Brain mounting)
  * - Parameter validation via Zod (strict)
  * - Execution with timeout and abort support
- * - Output fencing with <result_trust_level="untrusted-data">
+ * - Output fencing with `<result_trust_level="untrusted-data">`
  * - Observation projection (reflect) for context compaction
  * - Resource-class aware routing (A3: fail-closed GPU routing)
  * @public
@@ -142,7 +142,7 @@ export class ToolkitCatalogue {
    * 3. Acquire concurrency leases (see gating policy below)
    * 4. Execute with timeout and abort signal
    * 5. Apply reflect projection if defined
-   * 6. Fence output with <result_trust_level="untrusted-data">
+   * 6. Fence output with `<result_trust_level="untrusted-data">`
    * 7. Truncate if exceeds SMART_LIMIT_BYTES
    *
    * Gating policy (audit fix - was: only local-sandbox + gpu-inference gated):
