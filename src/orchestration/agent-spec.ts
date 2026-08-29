@@ -1,4 +1,4 @@
-import type { ThoughtProcess } from "../brain/adapter.js";
+import type { ThoughtProcess } from "../core/types.js";
 import { ToolkitCatalogue } from "../hands/catalogue.js";
 import { ToolDispatcher } from "../hands/tool-dispatcher.js";
 import { ContextManager } from "../memory/context-manager.js";
@@ -6,15 +6,17 @@ import { RepeatCallBinder } from "../loop/repeat-call-binder.js";
 
 /**
  * Rights constraints for an agent specification.
+ * Template members carry a payload after the colon (e.g. "max-tokens:4000",
+ * "allowed-tools:search,read").
  * @public
  */
-export type RightsConstraint = 
-  | "read-only" 
-  | "no-external-network" 
-  | "no-filesystem-write" 
-  | "max-tokens:N" 
-  | "max-wall-ms:N" 
-  | "allowed-tools:list";
+export type RightsConstraint =
+  | "read-only"
+  | "no-external-network"
+  | "no-filesystem-write"
+  | `max-tokens:${number}`
+  | `max-wall-ms:${number}`
+  | `allowed-tools:${string}`;
 
 /**
  * Agent specification - defines an agent's role, capabilities, and constraints.
@@ -109,8 +111,8 @@ export function createAgentInstance(
   toolCatalogue: ToolkitCatalogue,
   brain: ThoughtProcess,
   globalKillSwitch: AbortSignal,
-  contextManagerConfig: Parameters<typeof ContextManager>[0],
-  digestionPipeline: Parameters<typeof ContextManager>[1],
+  contextManagerConfig: ConstructorParameters<typeof ContextManager>[0],
+  digestionPipeline: ConstructorParameters<typeof ContextManager>[1],
 ): AgentInstance {
   const catalogue = new ToolkitCatalogue({ emit: () => {} });
   for (const handle of spec.allowedToolHandles) {

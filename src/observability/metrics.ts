@@ -55,7 +55,7 @@ export const GATE_METRICS = {
 export const GATE_LABEL_KEYS = {
   GATE: "gate",
   PRIORITY: "priority",
-} as const.
+} as const;
 
 // ============================================================================
 // Brain / Inference Metrics
@@ -87,14 +87,14 @@ export const INFERENCE_METRICS = {
   
   /** Counter: truncation events */
   TRUNCATIONS_TOTAL: "runtime_inference_truncations_total",
-} as const.
+} as const;
 
 /** Inference metric label keys */
 /** @public */
 export const INFERENCE_LABEL_KEYS = {
   MODEL: "model",
   FINISH_TAG: "finish_tag",
-} as const.
+} as const;
 
 // ============================================================================
 // Hands / Tool Metrics
@@ -115,9 +115,9 @@ export const TOOL_CLASS_LABELS = [
   "external_network",
   "external_database",
   "gpu_inference",
-] as const.
+] as const;
 /** @public */
-export type ToolClassLabel = (typeof TOOL_CLASS_LABELS)[number].
+export type ToolClassLabel = (typeof TOOL_CLASS_LABELS)[number];
 
 /** Tool failure categories (closed enum) */
 /** @public */
@@ -127,9 +127,9 @@ export const TOOL_FAILURE_CATEGORIES = [
   "timeout",
   "denied",
   "unknown_tool",
-] as const.
+] as const;
 /** @public */
-export type ToolFailureCategory = (typeof TOOL_FAILURE_CATEGORIES)[number].
+export type ToolFailureCategory = (typeof TOOL_FAILURE_CATEGORIES)[number];
 
 /** Tool metric names */
 /** @public */
@@ -145,14 +145,14 @@ export const TOOL_METRICS = {
   
   /** Counter: total bytes transferred */
   BYTES_TRANSFERRED_TOTAL: "runtime_tool_bytes_transferred_total",
-} as const.
+} as const;
 
 /** Tool metric label keys */
 /** @public */
 export const TOOL_LABEL_KEYS = {
   TOOL_CLASS: "tool_class",
   FAIL_CATEGORY: "fail_category",
-} as const.
+} as const;
 
 // ============================================================================
 // Loop / Run Metrics
@@ -160,9 +160,9 @@ export const TOOL_LABEL_KEYS = {
 
 /** Run status outcomes */
 /** @public */
-export const RUN_STATUS_LABELS = ["ACHIEVED", "PARTIAL", "CEDED", "FAILED"] as const.
+export const RUN_STATUS_LABELS = ["ACHIEVED", "PARTIAL", "CEDED", "FAILED"] as const;
 /** @public */
-export type RunStatusLabel = (typeof RUN_STATUS_LABELS)[number].
+export type RunStatusLabel = (typeof RUN_STATUS_LABELS)[number];
 
 /** Run exit reasons */
 /** @public */
@@ -174,9 +174,9 @@ export const RUN_EXIT_REASON_LABELS = [
   "operator_abort",
   "transport_failure",
   "synthesis_failure",
-] as const.
+] as const;
 /** @public */
-export type RunExitReasonLabel = (typeof RUN_EXIT_REASON_LABELS)[number].
+export type RunExitReasonLabel = (typeof RUN_EXIT_REASON_LABELS)[number];
 
 /** Loop/Run metric names */
 /** @public */
@@ -195,14 +195,14 @@ export const RUN_METRICS = {
   
   /** Counter: salvage events */
   SALVAGE_TOTAL: "runtime_run_salvage_total",
-} as const.
+} as const;
 
 /** Run metric label keys */
 /** @public */
 export const RUN_LABEL_KEYS = {
   STATUS: "status",
   EXIT_REASON: "exit_reason",
-} as const.
+} as const;
 
 // ============================================================================
 // Memory / Context Metrics
@@ -222,7 +222,7 @@ export const MEMORY_METRICS = {
   
   /** Counter: pin operations */
   PINS_TOTAL: "runtime_ctx_pins_total",
-} as const.
+} as const;
 
 // ============================================================================
 // Dispute Metrics
@@ -230,9 +230,9 @@ export const MEMORY_METRICS = {
 
 /** Dispute resolution tiers */
 /** @public */
-export const DISPUTE_TIER_LABELS = ["ORACLE", "RECOMPUTE", "JUDGE", "HUMAN_GATE"] as const.
+export const DISPUTE_TIER_LABELS = ["ORACLE", "RECOMPUTE", "JUDGE", "HUMAN_GATE"] as const;
 /** @public */
-export type DisputeTierLabel = (typeof DISPUTE_TIER_LABELS)[number].
+export type DisputeTierLabel = (typeof DISPUTE_TIER_LABELS)[number];
 
 /** Dispute resolution actions */
 /** @public */
@@ -241,9 +241,9 @@ export const DISPUTE_ACTION_LABELS = [
   "RECOMPUTE", 
   "QUARANTINE",
   "HUMAN_GATE",
-] as const.
+] as const;
 /** @public */
-export type DisputeActionLabel = (typeof DISPUTE_ACTION_LABELS)[number].
+export type DisputeActionLabel = (typeof DISPUTE_ACTION_LABELS)[number];
 
 /** Dispute metric names */
 /** @public */
@@ -259,14 +259,14 @@ export const DISPUTE_METRICS = {
   
   /** Counter: oscillation detections */
   OSCILLATION_TOTAL: "runtime_dispute_oscillation_total",
-} as const.
+} as const;
 
 /** Dispute metric label keys */
 /** @public */
 export const DISPUTE_LABEL_KEYS = {
   TIER: "tier",
   ACTION: "action",
-} as const.
+} as const;
 
 // ============================================================================
 // Synthesis / Seal Metrics
@@ -274,9 +274,9 @@ export const DISPUTE_LABEL_KEYS = {
 
 /** Seal result classes */
 /** @public */
-export const SEAL_RESULT_LABELS = ["accepted", "violation"] as const.
+export const SEAL_RESULT_LABELS = ["accepted", "violation"] as const;
 /** @public */
-export type SealResultLabel = (typeof SEAL_RESULT_LABELS)[number].
+export type SealResultLabel = (typeof SEAL_RESULT_LABELS)[number];
 
 /** Seal violation classes */
 /** @public */
@@ -285,9 +285,9 @@ export const SEAL_VIOLATION_CLASSES = [
   "DIRECTIVE_SUSPECT", 
   "SCHEMA",
   "CLOSURE",
-] as const.
+] as const;
 /** @public */
-export type SealViolationClass = (typeof SEAL_VIOLATION_CLASSES)[number].
+export type SealViolationClass = (typeof SEAL_VIOLATION_CLASSES)[number];
 
 /** Synthesis metric names */
 /** @public */
@@ -303,14 +303,14 @@ export const SYNTHESIS_METRICS = {
   
   /** Counter: reseal attempts */
   RESEAL_ATTEMPTS_TOTAL: "runtime_seal_reseal_attempts_total",
-} as const.
+} as const;
 
 /** Synthesis metric label keys */
 /** @public */
 export const SYNTHESIS_LABEL_KEYS = {
   RESULT: "result",
   VIOLATION_CLASS: "violation_class",
-} as const.
+} as const;
 
 // ============================================================================
 // Sink / Telemetry Health
@@ -327,13 +327,11 @@ export const SINK_METRICS = {
   
   /** Counter: listener errors */
   LISTENER_ERRORS_TOTAL: "runtime_sink_listener_errors_total",
-} as const.
+} as const;
 
 // ============================================================================
 // Canonical Envelope Schema
 // ============================================================================
-
-import { z } from "zod";
 
 /**
  * Canonical runtime event envelope.
@@ -350,7 +348,7 @@ export const RuntimeEventEnvelopeSchema = z.object({
 }).passthrough();
 
 /** @public */
-export type RuntimeEventEnvelope = z.infer<typeof RuntimeEventEnvelopeSchema>.
+export type RuntimeEventEnvelope = z.infer<typeof RuntimeEventEnvelopeSchema>;
 
 // ============================================================================
 // Utility: All Metric Names (for registration/validation)
@@ -367,10 +365,10 @@ export const ALL_METRIC_NAMES = [
   ...Object.values(DISPUTE_METRICS),
   ...Object.values(SYNTHESIS_METRICS),
   ...Object.values(SINK_METRICS),
-] as const.
+] as const;
 
 /** @public */
-export type MetricName = (typeof ALL_METRIC_NAMES)[number].
+export type MetricName = (typeof ALL_METRIC_NAMES)[number];
 
 // ============================================================================
 // SLA Baseline Alerts (for documentation)
