@@ -5,13 +5,25 @@ import type {
   ContractOutcome,
   ThoughtProcess,
   RequestSchedule,
+  ToolResult,
+} from "../core/types.js";
+import {
+  BudgetExhaustedError,
+  CognitiveOverloadError,
+  isBudgetExhaustedError,
+  isCognitiveOverloadError,
+  isGateAbortedError,
+  isRunAbortedError,
+  RunAbortedError,
 } from "../core/types.js";
 import { ContextManager } from "../memory/context-manager.js";
 import { ToolDispatcher } from "../hands/tool-dispatcher.js";
 import { RepeatCallBinder } from "../loop/repeat-call-binder.js";
 import { ToolkitCatalogue, createTestLease } from "../hands/catalogue.js";
 import { createCertifiedEnvelope } from "../hands/tool-dispatcher.js";
-import { BudgetExhaustedError, CognitiveOverloadError } from "../core/types.js";
+import type { ResourceSentinel } from "../sentinel/index.js";
+import { SynthesisEngine } from "../synthesis/sealer.js";
+import type { SealMetrics } from "../synthesis/sealer.js";
 
 /**
  * Run budgets configuration.
@@ -41,17 +53,26 @@ export const DEFAULT_RUN_BUDGETS: RunBudgets = {
 
 /**
  * Run status outcomes.
+ *
+ * - ACHIEVED: the model emitted a terminal answer.
+ * - PARTIAL: internal budgets exhausted before a terminal answer.
+ * - CEDED: control returned externally (kill switch / operator abort).
+ * - FAILED: fatal error; only the degraded seal is available.
  * @public
  */
 export type RunStatus = "ACHIEVED" | "PARTIAL" | "CEDED" | "FAILED";
 
 /**
  * Run result with trace and final report.
+ *
+ * finalReport is non-null by contract: every run - success, budget
+ * exhaustion, abort, or hard failure - terminates with exactly one sealed
+ * artifact (model-authored seal, or the deterministic degraded seal).
  * @public
  */
 export interface RunResult {
   status: RunStatus;
-  finalReport: FinalReport | null;
+  finalReport: FinalReport;
   steps: ExecutionStep[];
   totalWallTimeMs: number;
   totalTokensIn: number;
@@ -61,9 +82,16 @@ export interface RunResult {
 
 /**
  * AgentRunner - The main execution engine for autonomous runs.
- * 
- * Implements the ReAct loop with budgets, deduplication, and salvage paths.
- * Replaces the former "ChiefFlywheel" with standard naming.
+ *
+ * Implements the ReAct loop with budgets, deduplication, and terminal
+ * sealing. Replaces the former "ChiefFlywheel" with standard naming.
+ *
+ * Terminal sealing contract:
+ * - ACHIEVED / PARTIAL / CEDED runs receive a model-authored seal via the
+ *   SynthesisEngine (No-Tools Guarantee, grammar-constrained).
+ * - FAILED runs receive the deterministic degraded seal (A5, zero network).
+ * - If a model-authored seal itself fails, the run degrades rather than
+ *   shipping an unsealed result.
  * @public
  */
 export class AgentRunner {
@@ -78,7 +106,9 @@ export class AgentRunner {
   private readonly adminCharter: string;
   private readonly transparencyProfile: "sketch" | "internal-monologue" | null;
   private readonly selfQuestionProfile: string | null;
-  
+  private readonly sentinel: ResourceSentinel | null;
+  private readonly sealer: SynthesisEngine;
+
   private steps: ExecutionStep[] = [];
   private intentsDispatched = 0;
   private totalTokensIn = 0;
@@ -93,6 +123,10 @@ export class AgentRunner {
       adminCharter: string;
       transparencyProfile?: "sketch" | "internal-monologue" | null;
       selfQuestionProfile?: string | null;
+      /** Sentinel supplying terminal-report gate telemetry. Optional. */
+      sentinel?: ResourceSentinel;
+      /** Seal engine override (defaults to a SynthesisEngine over `brain`). */
+      sealer?: SynthesisEngine;
     },
   ) {
     this.brain = brain;
@@ -102,15 +136,19 @@ export class AgentRunner {
     this.adminCharter = config.adminCharter;
     this.transparencyProfile = config.transparencyProfile ?? "internal-monologue";
     this.selfQuestionProfile = config.selfQuestionProfile ?? null;
+    this.sentinel = config.sentinel ?? null;
+    this.sealer = config.sealer ?? new SynthesisEngine(brain);
     this.killSwitch = new AbortController();
     this.startTime = performance.now();
-    
+
     this.dispatcher = new ToolDispatcher(catalogue, this.killSwitch.signal);
     this.binder = new RepeatCallBinder();
   }
 
   /**
    * Execute an autonomous run to completion or budget exhaustion.
+   *
+   * Every call terminates with exactly one sealed FinalReport.
    * @public
    */
   async run(objective: string): Promise<RunResult> {
@@ -119,12 +157,18 @@ export class AgentRunner {
       { role: "user", content: objective },
     ]);
 
+    // Default when the loop exhausts its step budget without a terminal
+    // answer and without throwing: internal budgets ceded, salvage what ran.
     let runStatus: RunStatus = "PARTIAL";
-    let finalReport: FinalReport | null = null;
+    let fatalErr: unknown = null;
 
     try {
       // Main ReAct loop
       for (let stepIndex = 0; stepIndex < this.budgets.maxCogStepN; stepIndex++) {
+        if (this.killSwitch.signal.aborted) {
+          throw new RunAbortedError("kill switch fired before inference");
+        }
+
         // Check budget exhaustion
         this.checkBudgets(stepIndex);
 
@@ -133,6 +177,7 @@ export class AgentRunner {
 
         // Build request schedule
         const schedule = this.buildSchedule(stepIndex);
+        const stepStart = performance.now();
 
         // Probe for tool calls
         const turn = await this.brain.digest(this.contextManager.lane, schedule);
@@ -147,7 +192,7 @@ export class AgentRunner {
         if (turn.finishTag === "length_truncated") {
           this.contextManager.append({
             role: "user",
-            content: 
+            content:
               "Previous inference hit the token ceiling mid-emission. " +
               "Re-attempt with tighter scope: one tool call, minimized arguments, or a concise answer.",
           });
@@ -155,8 +200,8 @@ export class AgentRunner {
         }
 
         // Process tool calls
-        const toolResults: import("../core/types.js").ToolResult[] = [];
-        
+        const toolResults: ToolResult[] = [];
+
         for (const toolCall of turn.toolCalls) {
           // Check budgets
           if (++this.intentsDispatched > this.budgets.hardIntentCount) {
@@ -179,10 +224,10 @@ export class AgentRunner {
 
           const outcome = await this.dispatcher.executeIntent(envelope);
           toolResults.push(this.outcomeToToolResult(toolCall, outcome));
-          
+
           // Check for abort
           if (this.killSwitch.signal.aborted) {
-            throw new Error("Run aborted by kill switch");
+            throw new RunAbortedError("kill switch fired during tool dispatch");
           }
         }
 
@@ -191,7 +236,7 @@ export class AgentRunner {
           stepIndex,
           assistantTurn: turn,
           toolResults,
-          startedAt: this.startTime + performance.now() - performance.now(), // approximate
+          startedAt: stepStart,
           completedAt: performance.now(),
         };
         this.steps.push(step);
@@ -206,25 +251,22 @@ export class AgentRunner {
 
         // Check for final answer (no tool calls)
         if (turn.toolCalls.length === 0 && turn.finishTag === "stop") {
-          // Could implement final report generation here
           runStatus = "ACHIEVED";
           break;
         }
       }
-
-      // If we exited loop without explicit completion, salvage
-      if (runStatus === "PARTIAL") {
-        const salvage = await this.salvageReport(objective);
-        finalReport = salvage;
-        runStatus = "PARTIAL";
-      }
-
     } catch (err) {
+      fatalErr = err;
       runStatus = this.classifyError(err);
     }
 
+    // ---- Terminal sealing: every run ships exactly one sealed artifact ----
+    const finalReport = await this.sealRun(objective, runStatus, fatalErr);
+    // classifyError may have been overridden inside sealRun on seal failure.
+    const sealedStatus = finalReport.status;
+
     return {
-      status: runStatus,
+      status: sealedStatus,
       finalReport,
       steps: this.steps,
       totalWallTimeMs: performance.now() - this.startTime,
@@ -232,6 +274,45 @@ export class AgentRunner {
       totalTokensOut: this.totalTokensOut,
       intentsDispatched: this.intentsDispatched,
     };
+  }
+
+  /**
+   * Route the run to its terminal seal.
+   *
+   * - FAILED: deterministic degraded seal (A5). The brain may itself be the
+   *   failure source, so no inference is attempted.
+   * - ACHIEVED / PARTIAL / CEDED: model-authored seal under the No-Tools
+   *   Guarantee; on seal failure the run degrades (FAILED, or CEDED when
+   *   the seal died because of an external abort).
+   */
+  private async sealRun(
+    objective: string,
+    runStatus: RunStatus,
+    fatalErr: unknown,
+  ): Promise<FinalReport> {
+    const metrics = this.sealMetrics();
+
+    if (runStatus === "FAILED") {
+      return this.sealer.degradedSeal(objective, metrics, fatalErr);
+    }
+
+    try {
+      return await this.sealer.seal({
+        lane: this.contextManager.lane,
+        status: runStatus,
+        objective,
+        baseSchedule: this.buildSchedule(this.steps.length),
+        metrics,
+      });
+    } catch (sealErr) {
+      const degradedStatus: "FAILED" | "CEDED" =
+        this.killSwitch.signal.aborted || this.isAbortish(sealErr)
+          ? "CEDED"
+          : "FAILED";
+      return this.sealer.degradedSeal(objective, this.sealMetrics(), sealErr, {
+        status: degradedStatus,
+      });
+    }
   }
 
   private buildSchedule(stepIndex: number): RequestSchedule {
@@ -251,20 +332,20 @@ export class AgentRunner {
 
   private checkBudgets(stepIndex: number): void {
     const elapsed = performance.now() - this.startTime;
-    
+
     if (stepIndex >= this.budgets.maxCogStepN) {
       throw new CognitiveOverloadError(stepIndex, this.budgets.maxCogStepN);
     }
-    
+
     if (elapsed >= this.budgets.wallTimeCeilMs) {
       throw new BudgetExhaustedError("wallclock", elapsed, this.budgets.wallTimeCeilMs);
     }
   }
 
   private outcomeToToolResult(
-    toolCall: ToolCallRequest, 
-    outcome: ContractOutcome
-  ): import("../core/types.js").ToolResult {
+    toolCall: ToolCallRequest,
+    outcome: ContractOutcome,
+  ): ToolResult {
     return {
       toolCallId: toolCall.id,
       name: toolCall.name,
@@ -275,53 +356,46 @@ export class AgentRunner {
     };
   }
 
-  private async salvageReport(objective: string): Promise<FinalReport | null> {
-    // Attempt to generate a partial report from completed work
-    try {
-      const schedule = this.buildSchedule(this.steps.length);
-      const turn = await this.brain.digest(
-        [
-          ...this.contextManager.lane,
-          { 
-            role: "user", 
-            content: `SALVAGE MODE: Time/budget exhausted. Synthesize a PARTIAL report from completed work.\nObjective: ${objective}` 
-          },
-        ],
-        { ...schedule, upperBoundTokenCount: 4096 }
-      );
-
-      // Parse as FinalReport (simplified)
-      return {
-        status: "PARTIAL",
-        objective,
-        executiveSummary: turn.content.slice(0, 500),
-        findings: [],
-        disputes: [],
-        metrics: {
-          totalSteps: this.steps.length,
-          totalToolCalls: this.intentsDispatched,
-          totalWallTimeMs: performance.now() - this.startTime,
-          totalTokensIn: this.totalTokensIn,
-          totalTokensOut: this.totalTokensOut,
-          sentinelAcquisitions: 0,
-          sentinelRejections: 0,
-        },
-        seal: {
-          timestamp: new Date().toISOString(),
-          hash: "",
-          runtimeVersion: "0.1.0",
-        },
-      } as FinalReport;
-    } catch {
-      return null;
-    }
+  /**
+   * Terminal status classification.
+   *
+   * - External termination (kill switch) always wins: whatever error
+   *   surfaced, the operator pulled the plug - that is CEDED, not FAILED.
+   * - Internal budget exhaustion is PARTIAL: completed work is salvageable.
+   * - Everything else is FAILED.
+   */
+  private classifyError(err: unknown): RunStatus {
+    if (this.killSwitch.signal.aborted) return "CEDED";
+    if (isRunAbortedError(err) || isGateAbortedError(err)) return "CEDED";
+    if (isCognitiveOverloadError(err) || isBudgetExhaustedError(err)) return "PARTIAL";
+    return "FAILED";
   }
 
-  private classifyError(err: unknown): RunStatus {
-    if (err instanceof CognitiveOverloadError || err instanceof BudgetExhaustedError) {
-      return "PARTIAL";
-    }
-    return "FAILED";
+  private isAbortish(err: unknown): boolean {
+    if (isRunAbortedError(err) || isGateAbortedError(err)) return true;
+    return err instanceof Error && /aborted|kill switch/i.test(err.message);
+  }
+
+  private sealMetrics(): SealMetrics {
+    const counts = this.sentinelCounts();
+    return {
+      totalSteps: this.steps.length,
+      totalToolCalls: this.intentsDispatched,
+      totalWallTimeMs: Math.round(performance.now() - this.startTime),
+      totalTokensIn: this.totalTokensIn,
+      totalTokensOut: this.totalTokensOut,
+      sentinelAcquisitions: counts.acquisitions,
+      sentinelRejections: counts.rejections,
+    };
+  }
+
+  private sentinelCounts(): { acquisitions: number; rejections: number } {
+    if (!this.sentinel) return { acquisitions: 0, rejections: 0 };
+    const stats = this.sentinel.aggregateStats();
+    return {
+      acquisitions: stats.grants,
+      rejections: stats.refunds + stats.saturations,
+    };
   }
 
   /**
@@ -346,6 +420,8 @@ export function createAgentRunner(
     adminCharter: string;
     transparencyProfile?: "sketch" | "internal-monologue" | null;
     selfQuestionProfile?: string | null;
+    sentinel?: ResourceSentinel;
+    sealer?: SynthesisEngine;
   },
 ): AgentRunner {
   return new AgentRunner(brain, catalogue, contextManager, config);
