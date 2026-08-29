@@ -8,7 +8,7 @@ This document catalogs the deliberate engineering trade-offs and known limitatio
 
 **Scope:** The multi-agent orchestration primitives (`DIVIDE_SERVICE`, `FORUM_PLANNING`, `DEPTH_FUNNEL`, persona bench, `TRUCE_NEGOTIATION`) are excluded from the stable `v0.1` export map.
 
-**Rationale:** The dispute lattice (Tier 1–4 resolver) is the only multi-agent primitive that received full deterministic test coverage (S1–S8). The higher-order composition patterns remain partially serialized and lack the fuzz/property test coverage required for the stability guarantee.
+**Rationale:** The dispute lattice (`DisputeResolver` Tier 1–4) carries deterministic offline test coverage for the full escalation matrix (`test/unit/resolver.test.ts`, scenarios S1–S8: oracle resolution, majority recompute, judge arbitration, human-gate approval/rejection/timeout, ledger append-only invariants, and abort propagation). The higher-order composition patterns remain partially serialized and lack the fuzz/property test coverage required for the stability guarantee.
 
 **Impact:** Consumers requiring fan-out swarms must either implement custom orchestration atop `AgentRunner` or import from `./experimental` (no semver guarantees).
 
