@@ -213,28 +213,110 @@ export class GateSaturatedError extends AgentRuntimeError {
 }
 
 /**
+ * Run terminated by external kill switch (user or operator abort).
+ * Distinct from GateAbortedError (which covers gate lease waits only).
+ * Classified as CEDED: control was returned to the operator by design.
+ * @public
+ */
+export class RunAbortedError extends AgentRuntimeError {
+  constructor(reason: string = "external kill switch", cause?: unknown) {
+    super(
+      `Run aborted: ${reason}`,
+      "RUN_ABORTED",
+      cause,
+    );
+    this.name = "RunAbortedError";
+  }
+}
+
+/**
  * Check if an error is a transient transport failure (retryable).
+ *
+ * Detection is structural, in priority order:
+ * 1. SDK typed errors carry a `retryable: true` flag (duck-typed, so core
+ *    stays free of SDK imports) - no message sniffing needed.
+ * 2. Well-known transport error codes/signals in the error's name or
+ *    message (ECONNREFUSED, ETIMEDOUT, "fetch failed", ...).
+ * 3. The same checks against the error's `cause` chain (Node wraps
+ *    transport failures, e.g. `fetch failed` caused by ECONNREFUSED).
  * @public
  */
 export function isTransientTransport(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up|5\d\d/.test(`${err.name} ${err.message}`);
+  return classifyTransient(err, 0);
+}
+
+const TRANSIENT_SIGNAL = /\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|fetch failed|OllamaNetworkError|5\d\d)\b/i;
+
+function classifyTransient(err: unknown, depth: number): boolean {
+  if (depth > 3 || !(err instanceof Error)) return false;
+
+  // 1. SDK typed errors: structural retryable flag.
+  if ((err as { retryable?: unknown }).retryable === true) return true;
+
+  // 2. Name/message signal sniffing (fallback for untyped transport errors).
+  if (TRANSIENT_SIGNAL.test(`${err.name} ${err.message}`)) return true;
+
+  // 3. Cause chain: Node's fetch wraps the real socket error.
+  return classifyTransient((err as { cause?: unknown }).cause, depth + 1);
 }
 
 /**
  * Check if an error is a gate abort error.
+ *
+ * Structural check (A6): matches on the class name rather than `instanceof`
+ * so predicates keep working when a consumer's bundler/DTS setup produces a
+ * second copy of the module (dual-instance hazard), and across `Symbol.hasInstance`
+ * exotic environments. All runtime error classes set `name` in their constructor,
+ * making this a reliable discriminator.
  * @public
  */
 export function isGateAbortedError(err: unknown): err is GateAbortedError {
-  return err instanceof GateAbortedError;
+  return err instanceof Error && err.name === "GateAbortedError";
 }
 
 /**
- * Check if an error is a gate saturation error.
+ * Check if an error is a gate saturation error. Structural check (A6),
+ * see isGateAbortedError for rationale.
  * @public
  */
 export function isGateSaturatedError(err: unknown): err is GateSaturatedError {
-  return err instanceof GateSaturatedError;
+  return err instanceof Error && err.name === "GateSaturatedError";
+}
+
+/**
+ * Check if an error is a run abort error (kill switch). Structural check (A6),
+ * see isGateAbortedError for rationale.
+ * @public
+ */
+export function isRunAbortedError(err: unknown): err is RunAbortedError {
+  return err instanceof Error && err.name === "RunAbortedError";
+}
+
+/**
+ * Check if an error is an inference quality error. Structural check (A6),
+ * see isGateAbortedError for rationale.
+ * @public
+ */
+export function isInferenceQualityError(err: unknown): err is InferenceQualityError {
+  return err instanceof Error && err.name === "InferenceQualityError";
+}
+
+/**
+ * Check if an error is a budget exhaustion error. Structural check (A6),
+ * see isGateAbortedError for rationale.
+ * @public
+ */
+export function isBudgetExhaustedError(err: unknown): err is BudgetExhaustedError {
+  return err instanceof Error && err.name === "BudgetExhaustedError";
+}
+
+/**
+ * Check if an error is a cognitive overload error. Structural check (A6),
+ * see isGateAbortedError for rationale.
+ * @public
+ */
+export function isCognitiveOverloadError(err: unknown): err is CognitiveOverloadError {
+  return err instanceof Error && err.name === "CognitiveOverloadError";
 }
 
 /**

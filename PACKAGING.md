@@ -12,14 +12,14 @@ The package uses ESM-only conditional exports. Consumers **must** import via the
 |---------|------------|------------|-----------|
 | `.` | `dist/index.js` | All public symbols from all layers | Public |
 | `./core` | `dist/core/index.js` | Error taxonomy, types, contracts, schemas, structural `Contract<T>` alias | Public |
-| `./brain` | `dist/brain/index.js` | `OllamaThoughtProcess`, `ThoughtProcess`, `createOllamaThoughtProcess`, `ChatMsg`, `RequestSchedule`, `AssistantTurn`, `TurnUsage` | Public |
-| `./hands` | `dist/hands/index.js` | `ToolkitCatalogue`, `ToolDispatcher`, `Tool`, `SandboxLease`, `ForwardResult`, `createTestLease`, `createCertifiedEnvelope`, `SMART_LIMIT_BYTES`, `HARD_TOOL_CEILING_MS`, `toJsonSchema` | Public |
+| `./brain` | `dist/brain/index.js` | `OllamaThoughtProcess`, `createOllamaThoughtProcess` (core types `ThoughtProcess`, `ChatMsg`, `RequestSchedule`, `AssistantTurn`, `TurnUsage` are consumed from `./core`) | Public |
+| `./hands` | `dist/hands/index.js` | `ToolkitCatalogue`, `ToolDispatcher`, `CertifiedContractEnvelope`, `ForwardResult`, `ToolInvocationError`, `createTestLease`, `createStandardCatalogue`, `createCertifiedEnvelope`, `SMART_LIMIT_BYTES`, `HARD_TOOL_CEILING_MS`, `toJsonSchema` | Public |
 | `./memory` | `dist/memory/index.js` | `ContextManager`, `ContextManagerConfig`, `DigestionPipeline`, `createDefaultDigestionPipeline`, `DEFAULT_COMPACTION_THRESHOLD` | Public |
 | `./loop` | `dist/loop/index.js` | `AgentRunner`, `RunBudgets`, `RunResult`, `RunStatus`, `RepeatCallBinder`, `RepeatCallBinderConfig`, `createAgentRunner`, `createRepeatCallBinder`, `DEFAULT_RUN_BUDGETS`, `DEFAULT_REPEAT_CALL_BINDER_CONFIG` | Public |
-| `./dispute` | `dist/dispute/index.js` | *(Internal — no public re-exports yet)* | Internal |
-| `./sentinel` | `dist/sentinel/index.js` | `ConcurrencyGate`, `GateAbortedError`, `ResourceSentinel`, `Priority` | Public |
-| `./observability` | `dist/observability/index.js` | *(Internal — `EventSink` only)* | Public |
-| `./synthesis` | `dist/synthesis/index.js` | *(Internal — no public re-exports yet)* | Internal |
+| `./dispute` | `dist/dispute/index.js` | `DisputeResolver`, `DisputeResolverConfig`, `NegotiationLedger`, `ResolutionPlan` shapes, `DisputeResolutionError` (core) | Public |
+| `./sentinel` | `dist/sentinel/index.js` | `ConcurrencyGate`, `ResourceSentinel`, `Priority` (`GateAbortedError`/`GateSaturatedError` are consumed from `./core`) | Public |
+| `./observability` | `dist/observability/index.js` | The full metric contract: `GATE_METRICS`, `INFERENCE_METRICS`, `TOOL_METRICS`, `RUN_METRICS`, `MEMORY_METRICS`, `DISPUTE_METRICS`, `SYNTHESIS_METRICS`, `SINK_METRICS`, label enums/keys, `ALL_METRIC_NAMES`, `RuntimeEventEnvelopeSchema` (`EventSink` is consumed from `./core`) | Public |
+| `./synthesis` | `dist/synthesis/index.js` | `SynthesisEngine`, `SealRequest`, `SealMetrics`, `DegradedSealOptions`, `SynthesisSealError`, `RUNTIME_VERSION`, `SEAL_ENTROPY_OVERRIDE`, `MAX_SEAL_ATTEMPTS`, `FENCE_ESCAPE_PATTERN` | Public |
 
 **Invariant:** Any symbol not listed above is **not** part of the public API and may change without a major version bump.
 
@@ -39,9 +39,9 @@ The package uses ESM-only conditional exports. Consumers **must** import via the
 
 | Version Constraint | Rationale |
 |--------------------|-----------|
-| `^0.1.0` (optional) | The `OllamaThoughtProcess` adapter targets the v0.1.x SDK surface (`OllamaClient` constructor, `chat()` response shape). Declared as `peerDependenciesMeta.optional: true` so the runtime can be used in environments that provide their own `ThoughtProcess` implementation without the SDK installed. |
+| `^1.3.0` (optional) | The `OllamaThoughtProcess` adapter targets the SDK 1.x surface: `chat({ signal })` for in-flight kill-switch cancellation and the single-`message` `ChatResponse` shape. Declared as `peerDependenciesMeta.optional: true` so the runtime can be used in environments that provide their own `ThoughtProcess` implementation without the SDK installed. (Historical note: the constraint was previously `^0.1.0`, contradicting the tested dev dependency `^1.3.0` — aligned in the terminal-sealing remediation wave.) |
 
-**Migration note:** When SDK v0.2.0 releases, the runtime will publish a matching minor (e.g., `0.2.0`) with an updated adapter. The adapter is isolated to `src/brain/adapter.ts` — no other module depends on SDK internals.
+**Migration note:** The runtime minor version tracks the SDK minor version. The adapter is isolated to `src/brain/adapter.ts` — no other module depends on SDK internals.
 
 ---
 
@@ -49,8 +49,8 @@ The package uses ESM-only conditional exports. Consumers **must** import via the
 
 | Runtime Version | Compatible SDK | Compatible Zod | Node Engine |
 |-----------------|----------------|----------------|-------------|
-| `0.1.x` | `@nemesis-oss/ollama-sdk@^0.1.0` | `zod@^3.24` | `>=20` |
-| `0.2.x` (planned) | `@nemesis-oss/ollama-sdk@^0.2.0` | `zod@^3.24` | `>=20` |
+| `0.1.x` | `@nemesis-oss/ollama-sdk@^1.3.0` | `zod@^3.24` | `>=20` |
+| `0.2.x` (planned) | `@nemesis-oss/ollama-sdk@^1.3.0` | `zod@^3.24` | `>=20` |
 
 **Policy:** The runtime minor version tracks the SDK minor version. Zod major version is locked to `3.x` for the lifetime of the `0.x` line. A Zod `4.0.0` release will trigger a runtime `1.0.0` with a new structural alias strategy.
 
@@ -87,12 +87,14 @@ All items must be ✅ before `v0.1.0` tag.
 - [x] D7–D8 resolved (Synthesis `JSON.parse` wrapped, bounded corrective reseal)
 - [x] D9 resolved (Threat-class scan: `FENCE_ESCAPE` hard throw, `DIRECTIVE_SUSPECT` → human gate)
 - [x] D10 resolved (Evidence closure rejects `supersededBy`, `FinalReportSchema.superRefine` invariants)
-- [x] D11 resolved (Gate abort cleanup by referential identity)
-- [x] D12 resolved (Slot refund on aborted grant, pre-abort fast-path, idempotent release)
+- [x] D11 resolved (Gate abort cleanup by referential identity) — locked by the seeded fuzz suite
+- [x] D12 resolved (Slot refund at the release site; dead-entry hand-off can no longer double-decrement and over-grant) — locked by `test/unit/gate-fuzz.test.ts` (89 seeded interleavings)
 - [x] D13 resolved (Per-model `brainGate(modelId)`, memoized)
-- [x] D14 resolved (`resourceClass` on `Tool`, routing in `forwardIntent`, external-network ungated)
+- [x] D14 resolved (`resourceClass` routing in `forwardIntent`; when a sentinel is wired, ALL resource classes gate through the hands gate — gpu-inference additionally through its per-model brain gate — and the fail-closed classes reject in sentinel-less degraded mode)
 - [x] `ResolutionPlan` discriminated union locked in `core/types.ts`
-- [x] S5, S6, S7 scenario tests passing
+- [x] S1–S8 scenario tests passing (`test/unit/resolver.test.ts`)
+- [x] Kill switch cancels in-flight tools AND in-flight inference (deadline-guard abort race + SDK request signal)
+- [x] Terminal sealing: every run ships exactly one sealed `FinalReport` (`finalReport` non-null by contract)
 
 ### API Surface
 - [x] Export map matches §1 exactly
@@ -103,14 +105,16 @@ All items must be ✅ before `v0.1.0` tag.
 ### Build & CI
 - [x] `pnpm lint` clean (ESLint + boundaries)
 - [x] `pnpm build` clean (tsup + api-extractor, `etc/agentic-runtime.api.md` committed)
-- [x] `pnpm test` passes (unit + fixture replay)
-- [x] CI matrix: Node 20/22 × Zod 3.22/3.24 (dual-Zod leg)
-- [x] Smoke test script wired (`OLLAMA_SMOKE=1`)
+- [x] `pnpm test` passes (unit + fixture replay + seeded gate fuzz; 100+ tests)
+- [x] CI runs on `main` and PRs (fixed: the branch filter was mangled to `ain]` and never matched); Node 20/22 verify leg + zod 3.22/3.24 compatibility leg
+- [x] Smoke test script wired (`OLLAMA_SMOKE=1 pnpm test:smoke` → `test/integration/smoke.test.ts`; `UPDATE_GOLDEN=1` captures a live fixture)
 
 ### Documentation
 - [x] `PACKAGING.md` (this file) committed
 - [x] `README.md` with quickstart
-- [x] `CHANGELOG.md` with v0.1.0 entries
+- [x] `CHANGELOG.md` committed (Keep a Changelog format; previously claimed but absent)
+- [x] `LICENSE` committed (MIT; previously claimed but absent)
+- [ ] Golden fixture `test/fixtures/chat-response.sample.json` replaced with a LIVE Ollama capture (requires a daemon: `OLLAMA_SMOKE=1 UPDATE_GOLDEN=1 pnpm test:smoke`) — currently a hand-authored synthetic sample with an explicit `_provenance` marker
 - [ ] `API.md` generated from API Extractor (post-publish)
 
 ### Release Mechanics

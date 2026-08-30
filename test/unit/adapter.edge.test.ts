@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { createOllamaThoughtProcess } from "../../src/brain/adapter.js";
-import { InferenceQualityError, TransportFailure } from "../../src/core/types.js";
+import {
+  InferenceQualityError,
+  RunAbortedError,
+  TransportFailure,
+} from "../../src/core/types.js";
 import { vi } from "vitest";
+import goldenFixture from "../fixtures/chat-response.sample.json";
 
 // Since internal utilities are not exported, we can test them via the public API
 // or by using a trick to access them if they were exported.
@@ -90,7 +95,7 @@ describe("OllamaThoughtProcess - Edge Cases & Internal Logic", () => {
       .rejects.toThrow(InferenceQualityError);
   });
 
-  it("should throw InferenceQualityError on malformed tool arguments", async () => {
+  it("should throw InferenceQualityError on malformed tool arguments, preserving the violations list", async () => {
     const tp = createOllamaThoughtProcess(baseUrl, model);
     vi.spyOn((tp as any).remote, "chat").mockResolvedValue({
       message: { 
@@ -100,8 +105,13 @@ describe("OllamaThoughtProcess - Edge Cases & Internal Logic", () => {
       done: true,
     });
 
-    await expect(tp.digest([{ role: "user", content: "hi" }], { killSwitch: new AbortController().signal } as any))
-      .rejects.toThrow(InferenceQualityError);
+    // Audit fix: coerce()'s InferenceQualityError used to be re-wrapped by
+    // the catch block, destroying its violations and relabelling the root
+    // cause as upstream_error.
+    const err = await tp.digest([{ role: "user", content: "hi" }], { killSwitch: new AbortController().signal } as any)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InferenceQualityError);
+    expect((err as InferenceQualityError).violations).toEqual(["malformed_json"]);
   });
 
   it("should wrap transient transport errors as TransportFailure", async () => {
@@ -120,17 +130,66 @@ describe("OllamaThoughtProcess - Edge Cases & Internal Logic", () => {
       .rejects.toThrow(InferenceQualityError);
   });
 
-  it("should throw abort error when aborted during call", async () => {
+  it("should throw a typed RunAbortedError when aborted during call", async () => {
     const tp = createOllamaThoughtProcess(baseUrl, model);
     const controller = new AbortController();
-    
+
     vi.spyOn((tp as any).remote, "chat").mockImplementation(async () => {
       controller.abort();
       throw new Error("SDK Abort");
     });
 
-    await expect(tp.digest([{ role: "user", content: "hi" }], { killSwitch: controller.signal } as any))
-      .rejects.toThrow("Inference aborted by kill switch");
+    // Audit fix: aborts are now typed RunAbortedError so downstream
+    // classification is structural, not message-regex based.
+    const err = await tp
+      .digest([{ role: "user", content: "hi" }], { killSwitch: controller.signal } as any)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RunAbortedError);
+    expect((err as Error).message).toContain("Inference aborted by kill switch");
+  });
+
+  it("should forward the kill switch into the SDK request so in-flight calls are cancellable", async () => {
+    const tp = createOllamaThoughtProcess(baseUrl, model);
+    const controller = new AbortController();
+    const sdkSpy = vi.spyOn((tp as any).remote, "chat").mockResolvedValue({
+      message: { role: "assistant", content: "ok" },
+      done: true,
+    });
+
+    await tp.digest([{ role: "user", content: "hi" }], {
+      killSwitch: controller.signal,
+    } as any);
+
+    // Audit fix: the schedule kill switch is propagated as the SDK request
+    // signal - previously it was only observed after the response arrived.
+    const callArgs = sdkSpy.mock.calls[0][0];
+    expect(callArgs.signal).toBe(controller.signal);
+    sdkSpy.mockRestore();
+  });
+
+  it("should parse the SDK-shaped golden fixture (tool calls + ns->ms usage)", async () => {
+    const tp = createOllamaThoughtProcess(baseUrl, goldenFixture.model);
+    vi.spyOn((tp as any).remote, "chat").mockResolvedValue(goldenFixture);
+
+    const turn = await tp.digest(
+      [{ role: "user", content: "Fetch weather for Tokyo" }],
+      { killSwitch: new AbortController().signal } as any,
+    );
+
+    // The fixture's assistant message carries the tool call.
+    expect(turn.toolCalls).toHaveLength(1);
+    expect(turn.toolCalls[0]).toMatchObject({
+      name: "get_weather",
+      arguments: { city: "Tokyo" },
+    });
+    expect(turn.finishTag).toBe("tool_calls");
+    // Durations are stored in nanoseconds and converted to milliseconds.
+    expect(turn.usage).toMatchObject({
+      promptTokens: 15,
+      evalTokens: 10,
+      totalDurationMs: 1500,
+      loadDurationMs: 50,
+    });
   });
 
   it("should throw abort error if signal is already aborted", async () => {

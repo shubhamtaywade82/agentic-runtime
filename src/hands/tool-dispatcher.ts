@@ -1,4 +1,5 @@
 import { ToolkitCatalogue, createTestLease } from "./catalogue.js";
+import { ToolInvocationError } from "./catalogue.js";
 import type {
   ToolCallRequest,
   SandboxLease,
@@ -114,7 +115,21 @@ export class ToolDispatcher {
         };
       }
 
-      // 5. Catch-all for sandbox panics
+      // 5. Handle categorized tool invocations that escape the catalogue
+      // boundary (e.g. sentinel-missing 'denied' errors thrown during gate
+      // acquisition). Historically these fell through to the sandbox-panic
+      // catch-all and the category metadata was destroyed.
+      if (err instanceof ToolInvocationError ||
+          (err instanceof Error && err.name === "ToolInvocationError")) {
+        const category = (err as ToolInvocationError).category ?? "execution";
+        return {
+          status: "FAILURE",
+          payload: `TOOL_${category.toUpperCase()}: ${(err as Error).message}`,
+          telemetry: { executionMs, bytesTransferred: 0 },
+        };
+      }
+
+      // 6. Catch-all for sandbox panics
       return {
         status: "FAILURE",
         payload: `SANDBOX_PANIC: Unhandled exception in tool execution boundary: ${err instanceof Error ? err.message : String(err)}`,

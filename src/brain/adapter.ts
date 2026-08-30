@@ -6,10 +6,20 @@ import type {
   RequestSchedule,
   AssistantTurn,
 } from "../core/types.js";
-import { InferenceQualityError, TransportFailure } from "../core/types.js";
+import {
+  InferenceQualityError,
+  RunAbortedError,
+  TransportFailure,
+  isInferenceQualityError,
+  isTransientTransport,
+} from "../core/types.js";
 
 /**
  * Internal SDK response structure for type-safe handling.
+ *
+ * Mirrors the SDK 1.x ChatResponse shape: a single `message` object. (The
+ * historical `messages` array fallback was dead code - no released SDK
+ * version ever returned a conversation array from /api/chat.)
  */
 interface SDKMessage {
   role: string;
@@ -19,7 +29,6 @@ interface SDKMessage {
 
 interface SDKChatResponse {
   message?: SDKMessage;
-  messages?: SDKMessage[];
   done?: boolean;
   done_reason?: string;
   prompt_eval_count?: number;
@@ -62,6 +71,9 @@ function nsToMs(v?: number): number {
  * - Uses model-native tool calling for ≥7B parameter models
  * - Handles partial-write truncation via `length_truncated` finishTag
  * - Memoized model provisioning via SDK's auto-provision
+ * - Forwards the schedule kill switch into the SDK request (`signal`), so
+ *   aborting cancels the in-flight HTTP call instead of only being noticed
+ *   after the response arrives
  * @public
  */
 export class OllamaThoughtProcess implements ThoughtProcess {
@@ -133,17 +145,25 @@ export class OllamaThoughtProcess implements ThoughtProcess {
       payload.keep_alive = this.defaults.idleLiveSeconds;
     }
 
-    // Signal handling for cancellation
+    // Signal handling for cancellation.
+    // The `aborted` flag + post-call check covers SDKs without signal
+    // support; the payload signal makes the daemon-side request itself
+    // cancellable (SDK >= 1.3 ChatRequestOptions.signal).
     const abortSignal = schedule.killSwitch;
     let aborted = false;
     const abortHandler = () => { aborted = true; };
-    abortSignal.addEventListener("abort", abortHandler);
+    abortSignal.addEventListener("abort", abortHandler, { once: true });
 
     try {
       // Check if already aborted before calling
       if (abortSignal.aborted) {
-        throw new Error("Inference aborted by kill switch");
+        throw new RunAbortedError("Inference aborted by kill switch");
       }
+
+      // Propagate the kill switch into the SDK request so aborting cancels
+      // the in-flight HTTP call (audit fix: was previously only observed
+      // after the response arrived, so in-flight inference was unkillable).
+      payload.signal = abortSignal;
 
       // Call SDK - cast payload to satisfy SDK overloads
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -151,30 +171,17 @@ export class OllamaThoughtProcess implements ThoughtProcess {
       
       // Double check abort signal after the potentially long async call
       if (aborted || abortSignal.aborted) {
-        throw new Error("Inference aborted by kill switch");
+        throw new RunAbortedError("Inference aborted by kill switch");
       }
       
       // Handle response with type assertions for SDK version flexibility
       const r = response as unknown as SDKChatResponse;
       
-      // Extract assistant message - use findLast semantics (reverse search)
-      // to get the most recent assistant turn, not a stale one from history
-      let assistantMsg: SDKMessage | null = null;
+      // The assistant message is the response's `message` field (SDK 1.x
+      // ChatResponse shape).
+      const assistantMsg = r.message ?? null;
       const doneReason = r.done_reason;
       
-      const msgs: SDKMessage[] = Array.isArray(r.messages)
-        ? r.messages
-        : r.message ? [{ ...r.message }] : [];
-      
-      // findLast: search from end to get most recent assistant message
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        const msg = msgs[i];
-        if (msg?.role === "assistant") {
-          assistantMsg = msg;
-          break;
-        }
-      }
-
       if (!assistantMsg) {
         throw new InferenceQualityError("No assistant message in response.", ["missing_assistant_message"]);
       }
@@ -216,8 +223,14 @@ export class OllamaThoughtProcess implements ThoughtProcess {
         },
       };
     } catch (err) {
-      if (aborted) {
-        throw new Error("Inference aborted by kill switch");
+      if (aborted || abortSignal.aborted) {
+        throw new RunAbortedError("Inference aborted by kill switch", err);
+      }
+      // Preserve already-typed quality errors verbatim (e.g. malformed tool
+      // arguments from coerce()): re-wrapping destroyed their violations
+      // list and mislabelled root causes as upstream_error.
+      if (isInferenceQualityError(err)) {
+        throw err;
       }
       if (isTransientTransport(err)) {
         throw new TransportFailure(err instanceof Error ? err.message : String(err), undefined, err);
@@ -230,15 +243,6 @@ export class OllamaThoughtProcess implements ThoughtProcess {
       abortSignal.removeEventListener("abort", abortHandler);
     }
   }
-}
-
-/**
- * Check if an error is a transient transport failure (retryable).
- * Delegates to core/types for single source of truth.
- */
-function isTransientTransport(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up|5\d\d/.test(`${err.name} ${err.message}`);
 }
 
 /**
