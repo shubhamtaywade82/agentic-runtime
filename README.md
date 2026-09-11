@@ -43,7 +43,7 @@ A deterministic, production-grade autonomous AI agent runtime built on `@nemesis
 
 ```bash
 # Required peers
-pnpm add zod@^3.24 @nemesis-oss/ollama-sdk@^0.1.0
+pnpm add zod@^3.24 @nemesis-oss/ollama-sdk@^1.3.0
 
 # Runtime
 pnpm add @nemesis-oss/agentic-runtime@^0.1.0

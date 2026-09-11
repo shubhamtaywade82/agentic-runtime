@@ -129,7 +129,7 @@ All items must be ✅ before `v0.1.0` tag.
 
 ```bash
 # Peer deps must be installed by consumer
-pnpm add zod@^3.24 @nemesis-oss/ollama-sdk@^0.1.0 @nemesis-oss/agentic-runtime@^0.1.0
+pnpm add zod@^3.24 @nemesis-oss/ollama-sdk@^1.3.0 @nemesis-oss/agentic-runtime@^0.1.0
 ```
 
 ```typescript
