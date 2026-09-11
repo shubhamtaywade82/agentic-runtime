@@ -4,12 +4,13 @@
 
 ```ts
 
+import { OllamaClient } from '@nemesis-oss/ollama-sdk';
 import { z } from 'zod';
 import { ZodType } from 'zod';
 
 // @public
 export class AgentRunner {
-    constructor(brain: ThoughtProcess, catalogue: ToolkitCatalogue, contextManager: ContextManager, config: {
+    constructor(brainOrOptions: ThoughtProcess | AgentRunnerOptions, catalogue?: ToolkitCatalogue, contextManager?: ContextManager, config?: {
         budgets?: Partial<RunBudgets>;
         adminCharter: string;
         transparencyProfile?: "sketch" | "internal-monologue" | null;
@@ -26,6 +27,48 @@ export class AgentRunner {
     });
     getAbortController(): AbortController;
     run(objective: string): Promise<RunResult>;
+}
+
+// @public
+export interface AgentRunnerOptions {
+    // (undocumented)
+    adminCharter?: string;
+    // (undocumented)
+    approvals?: ApprovalProvider;
+    // (undocumented)
+    approvalTimeoutMs?: number;
+    // (undocumented)
+    brain: ThoughtProcess;
+    // (undocumented)
+    budgets?: Partial<RunBudgets>;
+    // (undocumented)
+    capabilitySelector?: CapabilitySelector;
+    // (undocumented)
+    catalogue?: ToolkitCatalogue;
+    // (undocumented)
+    contextManager?: ContextManager;
+    // (undocumented)
+    hands?: ToolDispatcher | ToolkitCatalogue;
+    // (undocumented)
+    laneMode?: "replace" | "append";
+    // (undocumented)
+    limits?: Partial<RunBudgets>;
+    // (undocumented)
+    memory?: ContextManager;
+    // (undocumented)
+    policy?: CapabilityPolicy;
+    // (undocumented)
+    router?: ModelRouter;
+    // (undocumented)
+    sealer?: SynthesisEngine;
+    // (undocumented)
+    selfQuestionProfile?: string | null;
+    // (undocumented)
+    sentinel?: ResourceSentinel;
+    // (undocumented)
+    sink?: EventSink;
+    // (undocumented)
+    transparencyProfile?: "sketch" | "internal-monologue" | null;
 }
 
 // @public
@@ -413,7 +456,7 @@ export interface ConstraintPayload {
 
 // @public
 export class ContextManager {
-    constructor(config: ContextManagerConfig, pipeline: DigestionPipeline, initialMessages?: ChatMsg[]);
+    constructor(config?: Partial<ContextManagerConfig>, pipeline?: DigestionPipeline, initialMessages?: ChatMsg[]);
     append(message: ChatMsg): void;
     contextPressure(): number;
     digestions: number;
@@ -1513,7 +1556,10 @@ export const ObservabilityEventSchema: z.ZodObject<{
 
 // @public
 export class OllamaThoughtProcess implements ThoughtProcess {
-    constructor(cfg: ThoughtPortConfig, modelAlias: string);
+    constructor(cfg: ThoughtPortConfig | {
+        client: OllamaClient | any;
+        model?: string;
+    }, modelAlias?: string);
     // (undocumented)
     digest(messages: ChatMsg[], schedule: RequestSchedule): Promise<AssistantTurn>;
     // (undocumented)
@@ -1816,6 +1862,8 @@ export interface RunResult {
     finalReport: FinalReport;
     // (undocumented)
     intentsDispatched: number;
+    // (undocumented)
+    report: string;
     // (undocumented)
     status: RunStatus;
     // (undocumented)
@@ -2249,7 +2297,9 @@ export const ToolDiscoverabilitySchema: z.ZodObject<{
 
 // @public
 export class ToolDispatcher {
-    constructor(catalogue: ToolkitCatalogue, globalKillSwitch: AbortSignal);
+    constructor(catalogue: ToolkitCatalogue, globalKillSwitch?: AbortSignal);
+    // (undocumented)
+    readonly catalogue: ToolkitCatalogue;
     executeIntent(envelope: CertifiedContractEnvelope): Promise<ContractOutcome>;
     validateIntent(intent: ToolCallRequest): {
         valid: boolean;
@@ -2291,9 +2341,9 @@ export class ToolInvocationError extends Error {
     readonly category: "validation" | "execution" | "timeout" | "denied" | "unknown_tool";
 }
 
-// @public
+// @public (undocumented)
 export class ToolkitCatalogue {
-    constructor(sink: EventSink, sentinel?: ResourceSentinel | undefined);
+    constructor(sinkOrTools?: EventSink | Array<ToolDefinition | any>, sentinel?: ResourceSentinel | undefined);
     executeDirect<TArgs extends Record<string, unknown>>(handle: string, args: TArgs, lease: SandboxLease, cancelToken: AbortSignal): Promise<ToolResult>;
     forwardIntent(intent: ToolCallRequest, lease: SandboxLease, cancelToken: AbortSignal): Promise<ForwardResult>;
     get(handle: string): ToolDefinition | undefined;

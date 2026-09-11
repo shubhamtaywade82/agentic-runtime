@@ -92,6 +92,48 @@ export interface RunResult {
   totalTokensIn: number;
   totalTokensOut: number;
   intentsDispatched: number;
+  report: string;
+}
+
+/**
+ * AgentRunner - The main execution engine for autonomous runs.
+ *
+ * Implements the ReAct loop with budgets, deduplication, and terminal
+ * sealing. Replaces the former "ChiefFlywheel" with standard naming.
+ *
+ * Sentinel wiring (audit fix): when a sentinel is supplied, every loop
+ * inference acquires a per-model brain-gate lease keyed by the brain's
+ * identityTag, bounding inference concurrency and making
+ * sentinelAcquisitions real telemetry instead of a hardcoded zero.
+ *
+ * Terminal sealing contract:
+ * - ACHIEVED / PARTIAL / CEDED runs receive a model-authored seal via the
+ *   SynthesisEngine (No-Tools Guarantee, grammar-constrained).
+ * - FAILED runs receive the deterministic degraded seal (A5, zero network).
+ * - If a model-authored seal itself fails, the run degrades rather than
+ *   shipping an unsealed result.
+ * @public
+ */
+export interface AgentRunnerOptions {
+  brain: ThoughtProcess;
+  hands?: ToolDispatcher | ToolkitCatalogue;
+  catalogue?: ToolkitCatalogue;
+  memory?: ContextManager;
+  contextManager?: ContextManager;
+  limits?: Partial<RunBudgets>;
+  budgets?: Partial<RunBudgets>;
+  adminCharter?: string;
+  transparencyProfile?: "sketch" | "internal-monologue" | null;
+  selfQuestionProfile?: string | null;
+  sentinel?: ResourceSentinel;
+  sealer?: SynthesisEngine;
+  capabilitySelector?: CapabilitySelector;
+  policy?: CapabilityPolicy;
+  approvals?: ApprovalProvider;
+  approvalTimeoutMs?: number;
+  router?: ModelRouter;
+  laneMode?: "replace" | "append";
+  sink?: EventSink;
 }
 
 /**
@@ -147,58 +189,75 @@ export class AgentRunner {
   private readonly runId = crypto.randomUUID();
 
   constructor(
-    brain: ThoughtProcess,
-    catalogue: ToolkitCatalogue,
-    contextManager: ContextManager,
-    config: {
+    brainOrOptions: ThoughtProcess | AgentRunnerOptions,
+    catalogue?: ToolkitCatalogue,
+    contextManager?: ContextManager,
+    config?: {
       budgets?: Partial<RunBudgets>;
       adminCharter: string;
       transparencyProfile?: "sketch" | "internal-monologue" | null;
       selfQuestionProfile?: string | null;
-      /** Sentinel supplying terminal-report gate telemetry. Optional. */
       sentinel?: ResourceSentinel;
-      /** Seal engine override (defaults to a SynthesisEngine over the brain). */
       sealer?: SynthesisEngine;
-      /** v0.2: capability selector - narrows mounted manifests per step. */
       capabilitySelector?: CapabilitySelector;
-      /** v0.2: dispatch policy gate evaluated before every tool call. */
       policy?: CapabilityPolicy;
-      /** v0.2: human approval provider resolving REQUIRE_APPROVAL decisions. */
       approvals?: ApprovalProvider;
-      /** v0.2: approval wait ceiling before fail-closed denial. Default 60s. */
       approvalTimeoutMs?: number;
-      /** v0.2: model router selecting the brain per phase. */
       router?: ModelRouter;
-      /** v0.2: "replace" (v0.1) or "append" (session continuity). */
       laneMode?: "replace" | "append";
-      /** v0.2: sink for policy/capability events. Default: noop. */
       sink?: EventSink;
     },
   ) {
-    this.brain = brain;
-    this.catalogue = catalogue;
-    this.contextManager = contextManager;
-    this.budgets = { ...DEFAULT_RUN_BUDGETS, ...config.budgets };
-    this.adminCharter = config.adminCharter;
-    this.transparencyProfile = config.transparencyProfile ?? "internal-monologue";
-    this.selfQuestionProfile = config.selfQuestionProfile ?? null;
-    this.sentinel = config.sentinel ?? null;
-    this.capabilitySelector = config.capabilitySelector;
-    this.policy = config.policy;
-    this.approvals = config.approvals;
-    this.approvalTimeoutMs = config.approvalTimeoutMs ?? 60_000;
-    this.router = config.router;
-    this.laneMode = config.laneMode ?? "replace";
-    this.sink = config.sink ?? { emit: () => {} };
-    this.configSealer = config.sealer ?? null;
-    // Without a router, the sealer binds to the single brain up front (v0.1
-    // behavior). With a router, it is constructed lazily at seal time from
-    // the router-selected "seal" brain.
-    this.sealer = config.sealer ?? (config.router === undefined ? new SynthesisEngine(brain) : null);
+    if ("brain" in brainOrOptions) {
+      const opts = brainOrOptions;
+      this.brain = opts.brain;
+      const hands = opts.hands;
+      if (hands instanceof ToolkitCatalogue) {
+        this.catalogue = hands;
+      } else if (hands && (hands as any).catalogue instanceof ToolkitCatalogue) {
+        this.catalogue = (hands as any).catalogue;
+      } else {
+        this.catalogue = opts.catalogue ?? new ToolkitCatalogue({ emit: () => {} });
+      }
+      this.contextManager = opts.memory ?? opts.contextManager ?? new ContextManager();
+      this.budgets = { ...DEFAULT_RUN_BUDGETS, ...(opts.limits ?? opts.budgets) };
+      this.adminCharter = opts.adminCharter ?? "You are a helpful assistant.";
+      this.transparencyProfile = opts.transparencyProfile ?? "internal-monologue";
+      this.selfQuestionProfile = opts.selfQuestionProfile ?? null;
+      this.sentinel = opts.sentinel ?? null;
+      this.capabilitySelector = opts.capabilitySelector;
+      this.policy = opts.policy;
+      this.approvals = opts.approvals;
+      this.approvalTimeoutMs = opts.approvalTimeoutMs ?? 60_000;
+      this.router = opts.router;
+      this.laneMode = opts.laneMode ?? "replace";
+      this.sink = opts.sink ?? { emit: () => {} };
+      this.configSealer = opts.sealer ?? null;
+      this.sealer = opts.sealer ?? (opts.router === undefined ? new SynthesisEngine(this.brain) : null);
+    } else {
+      this.brain = brainOrOptions;
+      this.catalogue = catalogue!;
+      this.contextManager = contextManager!;
+      const cfg = config!;
+      this.budgets = { ...DEFAULT_RUN_BUDGETS, ...cfg.budgets };
+      this.adminCharter = cfg.adminCharter;
+      this.transparencyProfile = cfg.transparencyProfile ?? "internal-monologue";
+      this.selfQuestionProfile = cfg.selfQuestionProfile ?? null;
+      this.sentinel = cfg.sentinel ?? null;
+      this.capabilitySelector = cfg.capabilitySelector;
+      this.policy = cfg.policy;
+      this.approvals = cfg.approvals;
+      this.approvalTimeoutMs = cfg.approvalTimeoutMs ?? 60_000;
+      this.router = cfg.router;
+      this.laneMode = cfg.laneMode ?? "replace";
+      this.sink = cfg.sink ?? { emit: () => {} };
+      this.configSealer = cfg.sealer ?? null;
+      this.sealer = cfg.sealer ?? (cfg.router === undefined ? new SynthesisEngine(this.brain) : null);
+    }
     this.killSwitch = new AbortController();
     this.startTime = performance.now();
 
-    this.dispatcher = new ToolDispatcher(catalogue, this.killSwitch.signal);
+    this.dispatcher = new ToolDispatcher(this.catalogue, this.killSwitch.signal);
     this.binder = new RepeatCallBinder();
   }
 
@@ -378,6 +437,18 @@ export class AgentRunner {
     // classifyError may have been overridden inside sealRun on seal failure.
     const sealedStatus = finalReport.status;
 
+    const reportText = (() => {
+      if (finalReport.status === "ACHIEVED" && finalReport.executiveSummary.startsWith("SEAL_DEGRADED:")) {
+        for (let i = this.steps.length - 1; i >= 0; i--) {
+          const content = this.steps[i]?.assistantTurn?.content;
+          if (content && content.trim().length > 0) {
+            return content;
+          }
+        }
+      }
+      return finalReport.executiveSummary;
+    })();
+
     return {
       status: sealedStatus,
       finalReport,
@@ -386,6 +457,7 @@ export class AgentRunner {
       totalTokensIn: this.totalTokensIn,
       totalTokensOut: this.totalTokensOut,
       intentsDispatched: this.intentsDispatched,
+      report: reportText,
     };
   }
 

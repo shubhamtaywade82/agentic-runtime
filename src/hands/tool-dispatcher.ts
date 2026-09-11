@@ -32,8 +32,8 @@ export interface CertifiedContractEnvelope {
  */
 export class ToolDispatcher {
   constructor(
-    private catalogue: ToolkitCatalogue,
-    private globalKillSwitch: AbortSignal,
+    public readonly catalogue: ToolkitCatalogue,
+    private globalKillSwitch: AbortSignal = new AbortController().signal,
   ) {}
 
   /**

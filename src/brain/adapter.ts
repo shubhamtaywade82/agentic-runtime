@@ -81,20 +81,24 @@ export class OllamaThoughtProcess implements ThoughtProcess {
   private readonly modelAlias: string;
   private readonly defaults: NonNullable<ThoughtPortConfig["defaults"]>;
 
-  constructor(cfg: ThoughtPortConfig, modelAlias: string) {
-    this.modelAlias = modelAlias;
-    this.defaults = cfg.defaults ?? {};
-    const clientConfig: Record<string, unknown> = {
-      baseUrl: cfg.baseUrl,
-      timeoutMs: this.defaults.timeoutMs ?? 60_000,
-      retries: this.defaults.retries ?? 2,
-    };
-    // Only add endpoints if explicitly provided
-    if (this.defaults.timeoutMs) {
-      // endpoints would be configured separately if needed
+  constructor(
+    cfg: ThoughtPortConfig | { client: OllamaClient | any; model?: string },
+    modelAlias?: string,
+  ) {
+    if ("client" in cfg) {
+      this.remote = cfg.client;
+      this.modelAlias = cfg.model ?? (cfg.client as any).model ?? "openbmb/minicpm5-2b";
+      this.defaults = {};
+    } else {
+      this.modelAlias = modelAlias!;
+      this.defaults = cfg.defaults ?? {};
+      const clientConfig: Record<string, unknown> = {
+        baseUrl: cfg.baseUrl,
+        timeoutMs: this.defaults.timeoutMs ?? 60_000,
+        retries: this.defaults.retries ?? 2,
+      };
+      this.remote = new OllamaClient(clientConfig as Record<string, unknown>);
     }
-    // SDK config type is not fully exported, use type assertion
-    this.remote = new OllamaClient(clientConfig as Record<string, unknown>);
   }
 
   get identityTag(): string {

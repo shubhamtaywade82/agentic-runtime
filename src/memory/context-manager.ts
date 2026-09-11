@@ -58,15 +58,19 @@ export class ContextManager {
   private readonly pipeline: DigestionPipeline;
 
   constructor(
-    config: ContextManagerConfig,
-    pipeline: DigestionPipeline,
+    config?: Partial<ContextManagerConfig>,
+    pipeline?: DigestionPipeline,
     initialMessages: ChatMsg[] = [],
   ) {
     this.config = {
-      ...config,
-      compactionThreshold: config.compactionThreshold ?? DEFAULT_COMPACTION_THRESHOLD,
+      modelCapacityTokenCeiling: config?.modelCapacityTokenCeiling ?? 8192,
+      reserveFreshTailCount: config?.reserveFreshTailCount ?? 10,
+      digestStyleHint: config?.digestStyleHint ?? "Summarize tool observations concisely.",
+      compactionThreshold: config?.compactionThreshold ?? DEFAULT_COMPACTION_THRESHOLD,
     };
-    this.pipeline = pipeline;
+    this.pipeline = pipeline ?? {
+      summarize: async (section: ChatMsg[]) => section.map((m) => m.content ?? "").join("\n"),
+    };
     this.lane = [...initialMessages];
   }
 

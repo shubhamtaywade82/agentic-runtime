@@ -68,6 +68,47 @@ export interface ForwardResult {
   body: string; // Fenced with <result_trust_level="untrusted-data">
 }
 
+function adaptToToolDefinition(raw: any): ToolDefinition {
+  if (raw && typeof raw.invoke === "function" && typeof raw.handle === "string") {
+    return raw;
+  }
+  const handle = raw.name || raw.handle;
+  const caption = raw.description || raw.caption || handle;
+  const argsShape = raw.parameters || raw.argsShape;
+  return {
+    handle,
+    caption,
+    argsShape,
+    resourceClass: raw.resourceClass ?? "local-cpu",
+    effects: raw.effects ?? "pure",
+    grantLevel: raw.grantLevel ?? "auto",
+    reflect: (res: ToolResult) => (res && typeof res === "object" && "output" in res ? res.output : res),
+    invoke: async (args: any, lease: any, cancelToken: any): Promise<ToolResult> => {
+      const start = performance.now();
+      try {
+        const out = raw.execute ? await raw.execute(args) : await raw.invoke(args, lease, cancelToken);
+        return {
+          toolCallId: (lease as any)?.toolCallId ?? "",
+          name: handle,
+          success: true,
+          output: out,
+          trustLevel: "verified",
+          executionTimeMs: performance.now() - start,
+        };
+      } catch (err) {
+        return {
+          toolCallId: (lease as any)?.toolCallId ?? "",
+          name: handle,
+          success: false,
+          output: err instanceof Error ? err.message : String(err),
+          trustLevel: "unverified",
+          executionTimeMs: performance.now() - start,
+        };
+      }
+    },
+  };
+}
+
 /**
  * ToolkitCatalogue - Registry and executor for tools.
  * 
@@ -82,8 +123,21 @@ export interface ForwardResult {
  */
 export class ToolkitCatalogue {
   private slots = new Map<string, ToolDefinition<Record<string, unknown>>>();
+  private sink: EventSink;
 
-  constructor(private sink: EventSink, private sentinel?: ResourceSentinel) {}
+  constructor(
+    sinkOrTools?: EventSink | Array<ToolDefinition | any>,
+    private sentinel?: ResourceSentinel,
+  ) {
+    if (Array.isArray(sinkOrTools)) {
+      this.sink = { emit: () => {} };
+      for (const t of sinkOrTools) {
+        this.place(adaptToToolDefinition(t));
+      }
+    } else {
+      this.sink = sinkOrTools ?? { emit: () => {} };
+    }
+  }
 
   /**
    * Register a tool in the catalogue.
