@@ -1,6 +1,6 @@
 {
   "name": "@nemesis-oss/agentic-runtime",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -8,6 +8,11 @@
   "exports": {
     ".": "./dist/index.js",
     "./core": "./dist/core/index.js",
+    "./capability": "./dist/capability/index.js",
+    "./policy": "./dist/policy/index.js",
+    "./mcp": "./dist/mcp/index.js",
+    "./router": "./dist/router/index.js",
+    "./session": "./dist/session/index.js",
     "./brain": "./dist/brain/index.js",
     "./hands": "./dist/hands/index.js",
     "./memory": "./dist/memory/index.js",
@@ -17,6 +22,9 @@
     "./observability": "./dist/observability/index.js",
     "./synthesis": "./dist/synthesis/index.js",
     "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "dist",
@@ -41,6 +49,7 @@
     "test:smoke": "OLLAMA_SMOKE=1 vitest run test/integration",
     "test:fuzz": "vitest run test/unit/gate-fuzz.test.ts",
     "lint": "eslint src --ext .ts",
+    "verify:package": "node scripts/verify-package.mjs",
     "api-extractor": "api-extractor run --local --verbose"
   },
   "devDependencies": {

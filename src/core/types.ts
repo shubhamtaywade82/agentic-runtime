@@ -493,6 +493,35 @@ export const GrantLevelSchema = z.enum(["auto", "acknowledged", "acknowledged-pr
 export type GrantLevel = z.infer<typeof GrantLevelSchema>;
 
 /**
+ * Declarative side-effect surface of a tool, consumed by the capability
+ * layer for policy and discovery. Independent of resourceClass, which
+ * governs concurrency routing.
+ * @public
+ */
+export const ToolSideEffectsSchema = z.object({
+  filesystem: z.enum(["read", "write"]).optional(),
+  network: z.enum(["none", "read", "write"]).optional(),
+  database: z.enum(["none", "read", "write"]).optional(),
+  process: z.boolean().optional(),
+});
+
+/** @public */
+export type ToolSideEffects = z.infer<typeof ToolSideEffectsSchema>;
+
+/**
+ * Discovery metadata for the capability index (progressive discovery).
+ * @public
+ */
+export const ToolDiscoverabilitySchema = z.object({
+  keywords: z.array(z.string()),
+  category: z.string().optional(),
+  priority: z.number().min(0).max(100).optional(),
+});
+
+/** @public */
+export type ToolDiscoverability = z.infer<typeof ToolDiscoverabilitySchema>;
+
+/**
  * Tool definition contract - aligns with SDK defineTool pattern.
  * @public
  */
@@ -505,6 +534,12 @@ export const ToolDefinitionSchema = z.object({
   grantLevel: GrantLevelSchema.default("auto"),
   maxOutputChars: z.number().int().positive().optional(),
   timeoutMs: z.number().int().positive().optional(),
+  source: z.enum(["native", "mcp", "remote"]).optional(),
+  serverId: z.string().optional(),
+  version: z.string().optional(),
+  sideEffects: ToolSideEffectsSchema.optional(),
+  discoverability: ToolDiscoverabilitySchema.optional(),
+  permissions: z.array(z.string()).optional(),
 });
 
 /**
@@ -525,19 +560,42 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
   grantLevel: GrantLevel;
   maxOutputChars?: number;
   timeoutMs?: number;
-  invoke: (args: TArgs, lease: SandboxLease | ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
+  /**
+   * Execute the tool. Declared with method syntax on purpose: method
+   * parameters are checked bivariantly, so a ToolDefinition<{city: string}>
+   * remains assignable wherever a generic tool definition is accepted
+   * (catalogues, capability router, createAgentRuntime) without forcing
+   * consumers into `any`.
+   */
+  invoke(args: TArgs, lease: SandboxLease | ResourceLease, cancelToken: AbortSignal): Promise<ToolResult>;
   /** Optional projection to strip noise before persisting digests. */
   reflect?: (raw: ToolResult) => unknown;
   /**
    * Required for "transactional" tools. Generates a deterministic key from arguments
    * to enable safe re-dispatch (e.g., HTTP POST with same idempotency key).
    */
-  idempotencyKey?: (args: TArgs) => string;
+  idempotencyKey?(args: TArgs): string;
   /**
    * Required when resourceClass is "gpu-inference". Specifies the model ID
    * to route the inference through the correct per-model concurrency gate.
    */
   targetModelId?: string;
+  /**
+   * Provenance: where this tool definition came from. Native tools are
+   * defined in-process; "mcp"/"remote" tools are adapted by the capability
+   * layer. Defaults to "native".
+   */
+  source?: "native" | "mcp" | "remote";
+  /** Originating server id for adapted (non-native) tools. */
+  serverId?: string;
+  /** Version of the tool as reported by its source. */
+  version?: string;
+  /** Declarative side effects for policy and discovery. */
+  sideEffects?: ToolSideEffects;
+  /** Discovery metadata for the capability index. */
+  discoverability?: ToolDiscoverability;
+  /** Named permissions this tool claims (policy-matchable). */
+  permissions?: string[];
 }
 
 /**

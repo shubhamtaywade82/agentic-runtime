@@ -1,6 +1,6 @@
 # @nemesis-oss/agentic-runtime — Packaging Specification
 
-This document defines the public API surface, versioning policy, and compatibility guarantees for `@nemesis-oss/agentic-runtime` v0.1.x.
+This document defines the public API surface, versioning policy, and compatibility guarantees for `@nemesis-oss/agentic-runtime` v0.2.x.
 
 ---
 
@@ -11,17 +11,24 @@ The package uses ESM-only conditional exports. Consumers **must** import via the
 | Subpath | Entrypoint | Re-exports | Stability |
 |---------|------------|------------|-----------|
 | `.` | `dist/index.js` | All public symbols from all layers | Public |
-| `./core` | `dist/core/index.js` | Error taxonomy, types, contracts, schemas, structural `Contract<T>` alias | Public |
+| `./core` | `dist/core/index.js` | Error taxonomy, types, contracts, schemas, structural `Contract<T>` alias, `ToolDefinition` (with v0.2 provenance metadata) | Public |
+| `./capability` | `dist/capability/index.js` | `CapabilityDescriptor`, `CapabilityKind/Source`, `capabilityId`, `toolToCapability`, `CapabilityIndex`, `scoreCapabilities`, `tokenizeForSearch`, `CapabilitySelector`, `StaticCapabilitySelector`, `TopKCapabilitySelector`, `CapabilityRouter`, `manifestSchemaFor`, `CapabilityManifest`, `CAPABILITY_METRICS` consumers | Public |
+| `./policy` | `dist/policy/index.js` | `CapabilityPolicy`, `PolicyDecision`, `PolicyRequest`, `GrantLevelPolicy`, `CompositePolicy`, `AllowAllPolicy`, rank tables, `ApprovalProvider`, `ApprovalRequest/Result`, `createApprovalProvider`, `autoApprove`, `autoDeny`, `requestApprovalWithTimeout`, `ApprovalProviderError`, `ServerTrust` | Public |
+| `./mcp` | `dist/mcp/index.js` | JSON-RPC codec, `StdioTransport`, `StreamableHttpTransport`, `anySignal`, `McpClient`, `McpServerRegistry`, `McpServerConfig`, `mcpToolsToToolDefinitions` + mapping helpers, `jsonSchemaContract`, `McpServerRegistry`, `ProgressiveDiscovery`, MCP error taxonomy, `MCP_METRICS` consumers | Public |
+| `./router` | `dist/router/index.js` | `ModelRouter`, `ModelSelectionRequest/Phase`, `StaticModelRouter`, `DeclarativeModelRouter`, `RoutingRule` | Public |
+| `./session` | `dist/session/index.js` | `createAgentRuntime`, `AgentRuntime`, `AgentSession`, `AgentRuntimeConfig`, `DEFAULT_AGENT_CHARTER`, `DEFAULT_SENTINEL_TOPOLOGY` | Public |
 | `./brain` | `dist/brain/index.js` | `OllamaThoughtProcess`, `createOllamaThoughtProcess` (core types `ThoughtProcess`, `ChatMsg`, `RequestSchedule`, `AssistantTurn`, `TurnUsage` are consumed from `./core`) | Public |
 | `./hands` | `dist/hands/index.js` | `ToolkitCatalogue`, `ToolDispatcher`, `CertifiedContractEnvelope`, `ForwardResult`, `ToolInvocationError`, `createTestLease`, `createStandardCatalogue`, `createCertifiedEnvelope`, `SMART_LIMIT_BYTES`, `HARD_TOOL_CEILING_MS`, `toJsonSchema` | Public |
 | `./memory` | `dist/memory/index.js` | `ContextManager`, `ContextManagerConfig`, `DigestionPipeline`, `createDefaultDigestionPipeline`, `DEFAULT_COMPACTION_THRESHOLD` | Public |
 | `./loop` | `dist/loop/index.js` | `AgentRunner`, `RunBudgets`, `RunResult`, `RunStatus`, `RepeatCallBinder`, `RepeatCallBinderConfig`, `createAgentRunner`, `createRepeatCallBinder`, `DEFAULT_RUN_BUDGETS`, `DEFAULT_REPEAT_CALL_BINDER_CONFIG` | Public |
 | `./dispute` | `dist/dispute/index.js` | `DisputeResolver`, `DisputeResolverConfig`, `NegotiationLedger`, `ResolutionPlan` shapes, `DisputeResolutionError` (core) | Public |
 | `./sentinel` | `dist/sentinel/index.js` | `ConcurrencyGate`, `ResourceSentinel`, `Priority` (`GateAbortedError`/`GateSaturatedError` are consumed from `./core`) | Public |
-| `./observability` | `dist/observability/index.js` | The full metric contract: `GATE_METRICS`, `INFERENCE_METRICS`, `TOOL_METRICS`, `RUN_METRICS`, `MEMORY_METRICS`, `DISPUTE_METRICS`, `SYNTHESIS_METRICS`, `SINK_METRICS`, label enums/keys, `ALL_METRIC_NAMES`, `RuntimeEventEnvelopeSchema` (`EventSink` is consumed from `./core`) | Public |
+| `./observability` | `dist/observability/index.js` | The full metric contract: `GATE_METRICS`, `INFERENCE_METRICS`, `TOOL_METRICS`, `RUN_METRICS`, `MEMORY_METRICS`, `DISPUTE_METRICS`, `SYNTHESIS_METRICS`, `SINK_METRICS`, `CAPABILITY_METRICS`, `POLICY_METRICS`, `MCP_METRICS`, label enums/keys, `ALL_METRIC_NAMES`, `RuntimeEventEnvelopeSchema` (`EventSink` is consumed from `./core`) | Public |
 | `./synthesis` | `dist/synthesis/index.js` | `SynthesisEngine`, `SealRequest`, `SealMetrics`, `DegradedSealOptions`, `SynthesisSealError`, `RUNTIME_VERSION`, `SEAL_ENTROPY_OVERRIDE`, `MAX_SEAL_ATTEMPTS`, `FENCE_ESCAPE_PATTERN` | Public |
 
 **Invariant:** Any symbol not listed above is **not** part of the public API and may change without a major version bump.
+
+**Note on `./orchestration`:** the multi-agent orchestration primitives remain excluded from the stable export map (see KNOWN_LIMITATIONS §1); import from `src` is unsupported.
 
 ---
 
@@ -47,12 +54,12 @@ The package uses ESM-only conditional exports. Consumers **must** import via the
 
 ## 3. Compatibility Matrix
 
-| Runtime Version | Compatible SDK | Compatible Zod | Node Engine |
-|-----------------|----------------|----------------|-------------|
-| `0.1.x` | `@nemesis-oss/ollama-sdk@^1.3.0` | `zod@^3.24` | `>=20` |
-| `0.2.x` (planned) | `@nemesis-oss/ollama-sdk@^1.3.0` | `zod@^3.24` | `>=20` |
+| Runtime Version | Compatible SDK | Compatible Zod | Node Engine | MCP |
+|-----------------|----------------|----------------|-------------|-----|
+| `0.1.x` | `@nemesis-oss/ollama-sdk@^1.3.0` | `zod@^3.24` | `>=20` | n/a |
+| `0.2.x` | `@nemesis-oss/ollama-sdk@^1.3.0` | `zod@^3.24` | `>=20` | Built-in (zero extra deps) |
 
-**Policy:** The runtime minor version tracks the SDK minor version. Zod major version is locked to `3.x` for the lifetime of the `0.x` line. A Zod `4.0.0` release will trigger a runtime `1.0.0` with a new structural alias strategy.
+**Policy:** Zod major version is locked to `3.x` for the lifetime of the `0.x` line. A Zod `4.0.0` release will trigger a runtime `1.0.0` with a new structural alias strategy. MCP support adds **no dependencies** — the client speaks JSON-RPC 2.0 over Node builtins (`child_process` for stdio, `fetch` for streamable HTTP).
 
 ---
 
@@ -77,49 +84,40 @@ The package uses ESM-only conditional exports. Consumers **must** import via the
 
 ---
 
-## 5. v0.1 Freeze Checklist (Release Gate)
+## 5. v0.2 Freeze Checklist (Release Gate)
 
-All items must be ✅ before `v0.1.0` tag.
+All items must be ✅ before `v0.2.0` tag.
 
 ### Architecture & Correctness
-- [x] D1–D5 resolved (Brain truncation, findLast, ns→ms, abort race, effects/idempotencyKey)
-- [x] D6 resolved (Synthesis constraint/mount exclusivity enforced in adapter)
-- [x] D7–D8 resolved (Synthesis `JSON.parse` wrapped, bounded corrective reseal)
-- [x] D9 resolved (Threat-class scan: `FENCE_ESCAPE` hard throw, `DIRECTIVE_SUSPECT` → human gate)
-- [x] D10 resolved (Evidence closure rejects `supersededBy`, `FinalReportSchema.superRefine` invariants)
-- [x] D11 resolved (Gate abort cleanup by referential identity) — locked by the seeded fuzz suite
-- [x] D12 resolved (Slot refund at the release site; dead-entry hand-off can no longer double-decrement and over-grant) — locked by `test/unit/gate-fuzz.test.ts` (89 seeded interleavings)
-- [x] D13 resolved (Per-model `brainGate(modelId)`, memoized)
-- [x] D14 resolved (`resourceClass` routing in `forwardIntent`; when a sentinel is wired, ALL resource classes gate through the hands gate — gpu-inference additionally through its per-model brain gate — and the fail-closed classes reject in sentinel-less degraded mode)
-- [x] `ResolutionPlan` discriminated union locked in `core/types.ts`
-- [x] S1–S8 scenario tests passing (`test/unit/resolver.test.ts`)
-- [x] Kill switch cancels in-flight tools AND in-flight inference (deadline-guard abort race + SDK request signal)
-- [x] Terminal sealing: every run ships exactly one sealed `FinalReport` (`finalReport` non-null by contract)
+- [x] v0.1 terminal-sealing / dispute / sentinel guarantees preserved (all v0.1 tests still pass)
+- [x] Capability layer: fail-closed registration, deterministic scoring, selectors never crash the loop (stale ids are skipped)
+- [x] Policy gate: evaluated after dedup, before intent budget; denials feed back as structured observations; fail-closed approvals
+- [x] MCP: stdio + streamable HTTP transports (spawn race, malformed-frame tolerance, session capture, close timeouts); capability-gated listings; abort propagation as structural AbortError
+- [x] Model routing: per-phase selection; sentinel brain gates key on the selected brain; router-aware lazy sealer
+- [x] Sessions: context continuity, per-run budgets, abort seals as CEDED; post-digest abort check guarantees aborted runs are never ACHIEVED
 
 ### API Surface
-- [x] Export map matches §1 exactly
+- [x] Export map matches §1 exactly (15 public subpaths)
 - [x] All public symbols tagged `@public` (API Extractor clean)
-- [x] No `@internal` symbols leaked in `.d.ts` rollups
-- [x] `zod` peer declared, not bundled; `@nemesis-oss/ollama-sdk` optional peer
+- [x] `zod` peer declared, not bundled; `@nemesis-oss/ollama-sdk` optional peer; no new runtime dependencies for MCP
 
 ### Build & CI
-- [x] `pnpm lint` clean (ESLint + boundaries)
-- [x] `pnpm build` clean (tsup + api-extractor, `etc/agentic-runtime.api.md` committed)
-- [x] `pnpm test` passes (unit + fixture replay + seeded gate fuzz; 100+ tests)
-- [x] CI runs on `main` and PRs (fixed: the branch filter was mangled to `ain]` and never matched); Node 20/22 verify leg + zod 3.22/3.24 compatibility leg
-- [x] Smoke test script wired (`OLLAMA_SMOKE=1 pnpm test:smoke` → `test/integration/smoke.test.ts`; `UPDATE_GOLDEN=1` captures a live fixture)
+- [x] `pnpm lint` clean (ESLint + boundaries — new modules under the layering contract)
+- [x] `pnpm build` clean (tsup + api-extractor, baseline regenerated for v0.2)
+- [x] `pnpm test` passes (232 tests: unit + fixture replay + seeded gate fuzz + MCP loopback/stdio/HTTP)
+- [x] `pnpm verify:package` passes in CI (tarball → consumer install → strict example compile → offline example execution → import smoke)
 
 ### Documentation
-- [x] `PACKAGING.md` (this file) committed
-- [x] `README.md` with quickstart
-- [x] `CHANGELOG.md` committed (Keep a Changelog format; previously claimed but absent)
-- [x] `LICENSE` committed (MIT; previously claimed but absent)
-- [ ] Golden fixture `test/fixtures/chat-response.sample.json` replaced with a LIVE Ollama capture (requires a daemon: `OLLAMA_SMOKE=1 UPDATE_GOLDEN=1 pnpm test:smoke`) — currently a hand-authored synthetic sample with an explicit `_provenance` marker
+- [x] `PACKAGING.md` (this file) updated for v0.2
+- [x] `README.md` with high-level + low-level quickstarts (compile-tested via `examples/basic`)
+- [x] `CHANGELOG.md` v0.2.0 entry
+- [x] `KNOWN_LIMITATIONS.md` refreshed (v0.2 scope + new MCP boundaries)
+- [ ] Golden fixture `test/fixtures/chat-response.sample.json` replaced with a LIVE Ollama capture (requires a daemon: `OLLAMA_SMOKE=1 UPDATE_GOLDEN=1 pnpm test:smoke`)
 - [ ] `API.md` generated from API Extractor (post-publish)
 
 ### Release Mechanics
-- [ ] Tag `v0.1.0` on `main`
-- [ ] `pnpm publish --access public`
+- [ ] Tag `v0.2.0` on `main`
+- [ ] `pnpm publish --access public` (or npm Trusted Publishing via GitHub Actions OIDC — recommended; eliminates long-lived tokens and provides provenance)
 - [ ] GitHub Release with changelog
 - [ ] Update SDK compatibility matrix in SDK repo README
 
@@ -129,32 +127,43 @@ All items must be ✅ before `v0.1.0` tag.
 
 ```bash
 # Peer deps must be installed by consumer
-pnpm add zod@^3.24 @nemesis-oss/ollama-sdk@^0.1.0 @nemesis-oss/agentic-runtime@^0.1.0
+pnpm add zod@^3.24 @nemesis-oss/ollama-sdk@^1.3.0 @nemesis-oss/agentic-runtime@^0.2.0
 ```
 
 ```typescript
-import { createAgentRunner, createOllamaThoughtProcess, createStandardCatalogue } from "@nemesis-oss/agentic-runtime";
-import { OllamaClient } from "@nemesis-oss/ollama-sdk";
+import {
+  createAgentRuntime,
+  createOllamaThoughtProcess,
+  createApprovalProvider,
+} from "@nemesis-oss/agentic-runtime";
+import { z } from "zod";
 
-// 1. Brain adapter
-const brain = createOllamaThoughtProcess("http://localhost:11434", "qwen3:8b");
-
-// 2. Tool catalogue (consumer defines tools)
-const catalogue = createStandardCatalogue({ emit: (name, payload) => console.log(name, payload) });
-// catalogue.place(myCustomTool);
-
-// 3. Context manager
-// ... create ContextManager with digestion pipeline ...
-
-// 4. Run
-const runner = createAgentRunner(brain, catalogue, contextManager, {
-  adminCharter: "You are an autonomous research agent...",
-  budgets: { maxCogStepN: 15, wallTimeCeilMs: 300_000 },
+const runtime = await createAgentRuntime({
+  brain: createOllamaThoughtProcess("http://localhost:11434", "qwen3:8b"),
+  tools: [/* native ToolDefinitions (Zod contracts) */],
+  mcp: {
+    servers: [{
+      serverId: "filesystem",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/workspace"],
+      trust: "verified",
+      sideEffects: { network: false, filesystem: true, process: false, database: false, externalMutation: false },
+    }],
+    limit: 8, // top-k capabilities mounted per run
+  },
+  approvals: createApprovalProvider(async (request) => ({ approved: true })),
 });
 
-const result = await runner.run("Investigate the cause of the latency spike in the payments service.");
-console.log(result.finalReport);
+const result = await runtime.run("Summarize the workspace.");
+console.log(result.status, result.finalReport.executiveSummary);
+await runtime.close();
 ```
+
+Runnable end-to-end examples live in `examples/` (`basic` — README quickstart
+verbatim, compile-tested; `custom-tools` — offline-runnable;
+`mcp-filesystem` — MCP progressive discovery). `pnpm verify:package`
+re-validates all of them against the packed tarball.
 
 ---
 

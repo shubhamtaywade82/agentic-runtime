@@ -394,10 +394,21 @@ type AnyZodType = ZodType<any, any, any>;
  * Convert Zod schema to JSON Schema (conservative, OpenAPI 3 compatible).
  * Strips unsupported features for grammar compiler compatibility.
  * Accepts the structural Contract alias and casts to ZodType internally.
+ *
+ * v0.2: contracts that already carry a JSON Schema (MCP tools, via
+ * jsonSchemaContract) project directly; non-Zod structural contracts
+ * degrade to a permissive object schema instead of crashing the
+ * manifest projection.
  * @public
  */
 export function toJsonSchema(schema: Contract<unknown> | AnyZodType): JSONSchema7 {
-  return zodToJsonSchema(schema as AnyZodType, { target: "openApi3" }) as JSONSchema7;
+  const direct = (schema as { jsonSchema?: JSONSchema7 }).jsonSchema;
+  if (direct !== null && typeof direct === "object") return direct;
+  try {
+    return zodToJsonSchema(schema as AnyZodType, { target: "openApi3" }) as JSONSchema7;
+  } catch {
+    return { type: "object" };
+  }
 }
 
 /**

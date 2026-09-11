@@ -340,6 +340,82 @@ export const SINK_METRICS = {
 } as const;
 
 // ============================================================================
+// Capability Layer (progressive discovery)
+// ============================================================================
+
+/** Capability-layer metric names */
+/** @public */
+export const CAPABILITY_METRICS = {
+  /** Counter: capabilities registered into the router, by source and kind */
+  REGISTRATIONS_TOTAL: "runtime_capability_registrations_total",
+
+  /** Gauge: size of the active mounted capability set per step */
+  MOUNTED_SIZE: "runtime_capability_mounted_size",
+
+  /** Counter: server capability sets dropped from the index */
+  FORGOTTEN_SERVERS_TOTAL: "runtime_capability_forgotten_servers_total",
+} as const;
+
+/** Capability metric label keys */
+/** @public */
+export const CAPABILITY_LABEL_KEYS = {
+  SOURCE: "source",
+  KIND: "kind",
+} as const;
+
+// ============================================================================
+// Policy Layer (capability trust boundary)
+// ============================================================================
+
+/** Policy-layer metric names */
+/** @public */
+export const POLICY_METRICS = {
+  /** Counter: policy decisions rendered, by decision type */
+  DECISIONS_TOTAL: "runtime_policy_decisions_total",
+
+  /** Counter: approval requests resolved, by outcome */
+  APPROVALS_TOTAL: "runtime_policy_approvals_total",
+
+  /** Counter: approval requests that timed out (fail-closed denials) */
+  APPROVAL_TIMEOUTS_TOTAL: "runtime_policy_approval_timeouts_total",
+} as const;
+
+/** Policy metric label keys */
+/** @public */
+export const POLICY_LABEL_KEYS = {
+  DECISION: "decision",
+  SCOPE: "scope",
+  OUTCOME: "outcome",
+} as const;
+
+// ============================================================================
+// MCP Layer (Model Context Protocol client)
+// ============================================================================
+
+/** MCP-layer metric names */
+/** @public */
+export const MCP_METRICS = {
+  /** Counter: servers connected, by transport */
+  CONNECTED_TOTAL: "runtime_mcp_connected_total",
+
+  /** Counter: servers disconnected */
+  DISCONNECTED_TOTAL: "runtime_mcp_disconnected_total",
+
+  /** Counter: capability list-changed notifications received */
+  LIST_CHANGED_TOTAL: "runtime_mcp_list_changed_total",
+
+  /** Counter: server stderr lines forwarded (truncated payload) */
+  SERVER_STDERR_LINE: "runtime_mcp_server_stderr_line",
+} as const;
+
+/** MCP metric label keys */
+/** @public */
+export const MCP_LABEL_KEYS = {
+  SERVER: "server",
+  TRANSPORT: "transport",
+} as const;
+
+// ============================================================================
 // Canonical Envelope Schema
 // ============================================================================
 
@@ -375,6 +451,9 @@ export const ALL_METRIC_NAMES = [
   ...Object.values(DISPUTE_METRICS),
   ...Object.values(SYNTHESIS_METRICS),
   ...Object.values(SINK_METRICS),
+  ...Object.values(CAPABILITY_METRICS),
+  ...Object.values(POLICY_METRICS),
+  ...Object.values(MCP_METRICS),
 ] as const;
 
 /** @public */

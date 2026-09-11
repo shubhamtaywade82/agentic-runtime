@@ -8,6 +8,8 @@ import type {
   RequestSchedule,
   SandboxLease,
   ToolResult,
+  EventSink,
+  JSONSchema7,
 } from "../core/types.js";
 import {
   BudgetExhaustedError,
@@ -27,6 +29,15 @@ import { createCertifiedEnvelope } from "../hands/tool-dispatcher.js";
 import type { ResourceSentinel } from "../sentinel/index.js";
 import { SynthesisEngine } from "../synthesis/sealer.js";
 import type { SealMetrics } from "../synthesis/sealer.js";
+import { toolToCapability } from "../capability/types.js";
+import { manifestSchemaFor } from "../capability/router.js";
+import type { CapabilityDescriptor } from "../capability/types.js";
+import type { CapabilitySelector } from "../capability/selector.js";
+import type { CapabilityPolicy } from "../policy/types.js";
+import { requestApprovalWithTimeout } from "../policy/approval.js";
+import type { ApprovalProvider } from "../policy/approval.js";
+import type { ModelRouter, ModelSelectionPhase } from "../router/types.js";
+import { POLICY_METRICS, POLICY_LABEL_KEYS, CAPABILITY_METRICS } from "../observability/metrics.js";
 
 /**
  * Run budgets configuration.
@@ -115,12 +126,24 @@ export class AgentRunner {
   private readonly transparencyProfile: "sketch" | "internal-monologue" | null;
   private readonly selfQuestionProfile: string | null;
   private readonly sentinel: ResourceSentinel | null;
-  private readonly sealer: SynthesisEngine;
+  private readonly configSealer: SynthesisEngine | null;
+  private readonly capabilitySelector: CapabilitySelector | undefined;
+  private readonly policy: CapabilityPolicy | undefined;
+  private readonly approvals: ApprovalProvider | undefined;
+  private readonly approvalTimeoutMs: number;
+  private readonly router: ModelRouter | undefined;
+  private readonly laneMode: "replace" | "append";
+  private readonly sink: EventSink;
 
+  private sealer: SynthesisEngine | null;
   private steps: ExecutionStep[] = [];
   private intentsDispatched = 0;
   private totalTokensIn = 0;
   private totalTokensOut = 0;
+  private policyDenials = 0;
+  private inferenceFailures = 0;
+  private currentObjective = "";
+  private lastMountedCount = 0;
   private readonly runId = crypto.randomUUID();
 
   constructor(
@@ -134,8 +157,22 @@ export class AgentRunner {
       selfQuestionProfile?: string | null;
       /** Sentinel supplying terminal-report gate telemetry. Optional. */
       sentinel?: ResourceSentinel;
-      /** Seal engine override (defaults to a SynthesisEngine over `brain`). */
+      /** Seal engine override (defaults to a SynthesisEngine over the brain). */
       sealer?: SynthesisEngine;
+      /** v0.2: capability selector - narrows mounted manifests per step. */
+      capabilitySelector?: CapabilitySelector;
+      /** v0.2: dispatch policy gate evaluated before every tool call. */
+      policy?: CapabilityPolicy;
+      /** v0.2: human approval provider resolving REQUIRE_APPROVAL decisions. */
+      approvals?: ApprovalProvider;
+      /** v0.2: approval wait ceiling before fail-closed denial. Default 60s. */
+      approvalTimeoutMs?: number;
+      /** v0.2: model router selecting the brain per phase. */
+      router?: ModelRouter;
+      /** v0.2: "replace" (v0.1) or "append" (session continuity). */
+      laneMode?: "replace" | "append";
+      /** v0.2: sink for policy/capability events. Default: noop. */
+      sink?: EventSink;
     },
   ) {
     this.brain = brain;
@@ -146,7 +183,18 @@ export class AgentRunner {
     this.transparencyProfile = config.transparencyProfile ?? "internal-monologue";
     this.selfQuestionProfile = config.selfQuestionProfile ?? null;
     this.sentinel = config.sentinel ?? null;
-    this.sealer = config.sealer ?? new SynthesisEngine(brain);
+    this.capabilitySelector = config.capabilitySelector;
+    this.policy = config.policy;
+    this.approvals = config.approvals;
+    this.approvalTimeoutMs = config.approvalTimeoutMs ?? 60_000;
+    this.router = config.router;
+    this.laneMode = config.laneMode ?? "replace";
+    this.sink = config.sink ?? { emit: () => {} };
+    this.configSealer = config.sealer ?? null;
+    // Without a router, the sealer binds to the single brain up front (v0.1
+    // behavior). With a router, it is constructed lazily at seal time from
+    // the router-selected "seal" brain.
+    this.sealer = config.sealer ?? (config.router === undefined ? new SynthesisEngine(brain) : null);
     this.killSwitch = new AbortController();
     this.startTime = performance.now();
 
@@ -161,10 +209,17 @@ export class AgentRunner {
    * @public
    */
   async run(objective: string): Promise<RunResult> {
-    this.contextManager.replaceLane([
-      { role: "system", content: this.adminCharter },
-      { role: "user", content: objective },
-    ]);
+    this.currentObjective = objective;
+    if (this.laneMode === "append") {
+      // Session continuity: prior lane content (charter, history) survives;
+      // the objective is appended as the newest user turn.
+      this.contextManager.append({ role: "user", content: objective });
+    } else {
+      this.contextManager.replaceLane([
+        { role: "system", content: this.adminCharter },
+        { role: "user", content: objective },
+      ]);
+    }
 
     // Default when the loop exhausts its step budget without a terminal
     // answer and without throwing: internal budgets ceded, salvage what ran.
@@ -184,23 +239,37 @@ export class AgentRunner {
         // Schedule context digestion
         await this.contextManager.maybeDigest(JSON.stringify({ stepIndex }));
 
-        // Build request schedule
-        const schedule = this.buildSchedule(stepIndex);
+        // Build request schedule (router- and selector-aware)
+        const schedule = await this.buildSchedule(stepIndex);
         const stepStart = performance.now();
 
         // Probe for tool calls. Sentinel wiring (audit fix): loop inferences
         // flow through the per-model brain gate when a sentinel is supplied,
         // so inference concurrency is actually bounded by hardware config.
+        // v0.2: with a model router, the gate keys on the SELECTED brain's
+        // identityTag, so hybrid topologies stay per-model bounded.
+        const brain = this.brainFor("step");
         const release = this.sentinel
           ? await this.sentinel
-              .brainGate(this.brain.identityTag)
+              .brainGate(brain.identityTag)
               .acquire("normal", this.killSwitch.signal)
           : null;
         let turn: AssistantTurn;
         try {
-          turn = await this.brain.digest(this.contextManager.lane, schedule);
+          turn = await brain.digest(this.contextManager.lane, schedule);
+        } catch (err) {
+          this.inferenceFailures++;
+          throw err;
         } finally {
           release?.();
+        }
+
+        // Post-digest abort check: brains that honor the kill switch throw
+        // RunAbortedError themselves (the Ollama adapter does); brains that
+        // resolve despite an abort must not let the run proceed - an
+        // aborted run is CEDED, never ACHIEVED.
+        if (this.killSwitch.signal.aborted) {
+          throw new RunAbortedError("kill switch fired during inference");
         }
 
         // Track tokens
@@ -229,6 +298,15 @@ export class AgentRunner {
           const binderResult = this.binder.check(toolCall);
           if (!binderResult.allowed) {
             this.contextManager.append({ role: "user", content: binderResult.nudge });
+            continue;
+          }
+
+          // v0.2 policy gate: denials and unapproved calls never dispatch,
+          // so they consume no intent budget either - the model receives a
+          // structured POLICY_DENIED observation and pivots.
+          const policyDenial = await this.applyPolicy(toolCall);
+          if (policyDenial !== null) {
+            toolResults.push(policyDenial);
             continue;
           }
 
@@ -326,17 +404,18 @@ export class AgentRunner {
     fatalErr: unknown,
   ): Promise<FinalReport> {
     const metrics = this.sealMetrics();
+    const sealer = this.sealerFor();
 
     if (runStatus === "FAILED") {
-      return this.sealer.degradedSeal(objective, metrics, fatalErr);
+      return sealer.degradedSeal(objective, metrics, fatalErr);
     }
 
     try {
-      return await this.sealer.seal({
+      return await sealer.seal({
         lane: this.contextManager.lane,
         status: runStatus,
         objective,
-        baseSchedule: this.buildSchedule(this.steps.length),
+        baseSchedule: await this.buildSchedule(this.steps.length),
         metrics,
       });
     } catch (sealErr) {
@@ -344,16 +423,135 @@ export class AgentRunner {
         this.killSwitch.signal.aborted || this.isAbortish(sealErr)
           ? "CEDED"
           : "FAILED";
-      return this.sealer.degradedSeal(objective, this.sealMetrics(), sealErr, {
+      return sealer.degradedSeal(objective, this.sealMetrics(), sealErr, {
         status: degradedStatus,
       });
     }
   }
 
-  private buildSchedule(stepIndex: number): RequestSchedule {
-    // Determine which tools to mount based on current context
-    // For now, mount all available tools
-    const manifests = this.catalogue.manifests();
+  /**
+   * The seal engine: config override > constructor-bound (no router) >
+   * lazily constructed over the router-selected "seal" brain.
+   */
+  private sealerFor(): SynthesisEngine {
+    if (this.sealer !== null) return this.sealer;
+    if (this.configSealer !== null) return this.configSealer;
+    this.sealer = new SynthesisEngine(this.brainFor("seal"));
+    return this.sealer;
+  }
+
+  /**
+   * Select the brain for a phase: the router decides when present, the
+   * single brain otherwise.
+   */
+  private brainFor(phase: ModelSelectionPhase): ThoughtProcess {
+    if (this.router === undefined) return this.brain;
+    return this.router.select({
+      phase,
+      objective: this.currentObjective,
+      stepIndex: this.steps.length,
+      mountedToolCount: this.lastMountedCount || this.catalogue.slotNames().length,
+      contextPressure: this.contextPressure(),
+      inferenceFailures: this.inferenceFailures,
+    });
+  }
+
+  private contextPressure(): number {
+    return this.contextManager.contextPressure?.() ?? 0;
+  }
+
+  /**
+   * Evaluate the dispatch policy for one tool call.
+   * Returns null when dispatch may proceed; a failed ToolResult when the
+   * call is denied (fail-closed: missing provider, timeout, provider error
+   * and explicit rejection all deny).
+   */
+  private async applyPolicy(toolCall: ToolCallRequest): Promise<ToolResult | null> {
+    if (this.policy === undefined) return null;
+
+    const tool = this.catalogue.get(toolCall.name);
+    const capability: CapabilityDescriptor =
+      tool !== undefined
+        ? toolToCapability(tool)
+        : {
+            id: `unknown:${toolCall.name}`,
+            name: toolCall.name,
+            description: "tool not registered in the catalogue",
+            kind: "tool",
+            source: "native",
+          };
+
+    const decision = this.policy.evaluate({
+      capability,
+      toolCall,
+      objective: this.currentObjective,
+      stepIndex: this.steps.length,
+      previousDenials: this.policyDenials,
+    });
+    this.sink.emit(POLICY_METRICS.DECISIONS_TOTAL, {
+      [POLICY_LABEL_KEYS.DECISION]: decision.type,
+      tool: toolCall.name,
+    });
+
+    if (decision.type === "ALLOW") return null;
+    if (decision.type === "DENY") {
+      return this.policyDenialResult(toolCall, decision.reason);
+    }
+
+    // REQUIRE_APPROVAL
+    if (this.approvals === undefined) {
+      return this.policyDenialResult(
+        toolCall,
+        `${decision.reason} No approval provider is configured; the runtime fails closed.`,
+      );
+    }
+
+    let approved = false;
+    let note: string | undefined;
+    try {
+      const answer = await requestApprovalWithTimeout(
+        this.approvals,
+        {
+          capability,
+          reason: decision.reason,
+          scope: decision.scope,
+          objective: this.currentObjective,
+          stepIndex: this.steps.length,
+        },
+        this.approvalTimeoutMs,
+      );
+      approved = answer.approved;
+      note = answer.note;
+      this.sink.emit(POLICY_METRICS.APPROVALS_TOTAL, {
+        [POLICY_LABEL_KEYS.OUTCOME]: approved ? "approved" : "denied",
+        [POLICY_LABEL_KEYS.SCOPE]: decision.scope,
+      });
+    } catch (err) {
+      note = `Approval provider error (fail-closed denial): ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+    if (approved) return null;
+    return this.policyDenialResult(toolCall, note ?? decision.reason);
+  }
+
+  private policyDenialResult(toolCall: ToolCallRequest, reason: string): ToolResult {
+    this.policyDenials++;
+    return {
+      toolCallId: toolCall.id,
+      name: toolCall.name,
+      success: false,
+      output:
+        `POLICY_DENIED :: ${reason}\n` +
+        `Mandate: choose a materially different tool or approach, or announce the limitation.`,
+      error: reason,
+      trustLevel: "verified",
+      executionTimeMs: 0,
+    };
+  }
+
+  private async buildSchedule(stepIndex: number): Promise<RequestSchedule> {
+    const manifests = await this.mountedManifests();
 
     return {
       mounting: { manifests },
@@ -363,6 +561,55 @@ export class AgentRunner {
       killSwitch: this.killSwitch.signal,
       transcriptDigest: `run-${this.runId}-step-${stepIndex}`,
     };
+  }
+
+  /**
+   * v0.1 behavior mounts every catalogue manifest. v0.2 with a selector
+   * narrows the mounted set per step (progressive discovery); unmounted
+   * tools remain dispatchable and governed.
+   */
+  private async mountedManifests(): Promise<
+    Array<{ name: string; description: string; parametersJsonSchema: JSONSchema7 }>
+  > {
+    if (this.capabilitySelector === undefined) {
+      return this.catalogue.manifests();
+    }
+
+    const available: CapabilityDescriptor[] = [];
+    for (const handle of this.catalogue.slotNames()) {
+      const tool = this.catalogue.get(handle);
+      if (tool !== undefined) available.push(toolToCapability(tool));
+    }
+
+    const mounted = await this.capabilitySelector.select({
+      objective: this.currentObjective,
+      context: this.contextManager.lane,
+      available,
+      stepIndex: this.steps.length,
+    });
+
+    const manifests: Array<{
+      name: string;
+      description: string;
+      parametersJsonSchema: JSONSchema7;
+    }> = [];
+    for (const capability of mounted.capabilities) {
+      if (capability.kind !== "tool") continue;
+      const tool = this.catalogue.get(capability.name);
+      if (tool === undefined) continue; // Selector returned a stale id: skip.
+      manifests.push({
+        name: tool.handle,
+        description: tool.caption,
+        parametersJsonSchema: manifestSchemaFor(tool.argsShape),
+      });
+    }
+
+    this.lastMountedCount = manifests.length;
+    this.sink.emit(CAPABILITY_METRICS.MOUNTED_SIZE, {
+      rationale: mounted.rationale,
+      size: manifests.length,
+    });
+    return manifests;
   }
 
   /**
@@ -471,6 +718,13 @@ export function createAgentRunner(
     selfQuestionProfile?: string | null;
     sentinel?: ResourceSentinel;
     sealer?: SynthesisEngine;
+    capabilitySelector?: CapabilitySelector;
+    policy?: CapabilityPolicy;
+    approvals?: ApprovalProvider;
+    approvalTimeoutMs?: number;
+    router?: ModelRouter;
+    laneMode?: "replace" | "append";
+    sink?: EventSink;
   },
 ): AgentRunner {
   return new AgentRunner(brain, catalogue, contextManager, config);

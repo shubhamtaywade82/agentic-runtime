@@ -10,13 +10,30 @@ jobs:
   verify:
     name: lint + build + test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    env:
+      # Run the exact pnpm installed below instead of self-switching to the
+      # packageManager pin mid-run (pnpm >= 10 hops versions by default).
+      # Required on the Node 20 leg; harmless everywhere else.
+      npm_config_manage_package_manager_versions: "false"
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20.x, 22.x]
+        include:
+          # pnpm 11 requires Node >= 22.13 and aborts on Node 20, so that leg
+          # pins pnpm 10 — same lockfileVersion 9.0 lockfile, Node >= 18.12.
+          # The runtime still claims Node >= 20 (package.json engines).
+          - node-version: 20.x
+            pnpm-version: "10"
+          - node-version: 22.x
+            pnpm-version: "11.24.0"
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      # pnpm/action-setup refuses to run when its `version` input conflicts
+      # with the packageManager pin, and the Node 20 leg cannot use the pin
+      # (pnpm 11 needs Node >= 22.13) — so install pnpm directly per leg.
+      # The env var above keeps pnpm from hopping to the pin mid-run.
+      - name: Install pnpm ${{ matrix.pnpm-version }}
+        run: npm install -g pnpm@${{ matrix.pnpm-version }}
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
@@ -55,3 +72,28 @@ jobs:
       # default-matrix verify leg above.
       - name: Test
         run: pnpm test
+
+  package-verify:
+    name: tarball consumer verification (Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Build (tsup + api-extractor baseline check)
+        run: pnpm build
+      - name: Test
+        run: pnpm test
+      # Protects the npm contract: pack -> install into a fresh consumer ->
+      # strict-compile all examples against the tarball (README quickstart
+      # included) -> run the offline example -> import-smoke every subpath.
+      - name: Verify packed artifact
+        run: pnpm verify:package

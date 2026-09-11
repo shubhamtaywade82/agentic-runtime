@@ -117,6 +117,17 @@ export class ContextManager {
   }
 
   /**
+   * Current context pressure as a 0..1 ratio of estimated tokens to the
+   * model capacity. Consumed by model routers (context-pressure routing)
+   * and observability.
+   * @public
+   */
+  contextPressure(): number {
+    if (this.config.modelCapacityTokenCeiling <= 0) return 0;
+    return Math.min(1, this.estimateTokens() / this.config.modelCapacityTokenCeiling);
+  }
+
+  /**
    * Schedule a digestion cycle if pressure is high.
    * Summarizes oldest tool messages while preserving recent context.
    * @public
