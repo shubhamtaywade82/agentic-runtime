@@ -59,6 +59,15 @@ export class StaticModelRouter implements ModelRouter {
   }
 
   /**
+   * The single brain this router returns (also used as the primary brain
+   * for working-memory digestion in high-level runtimes).
+   * @public
+   */
+  get singleBrain(): ThoughtProcess {
+    return this.brain;
+  }
+
+  /**
    * Select: always the configured brain.
    * @public
    */

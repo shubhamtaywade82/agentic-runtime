@@ -264,6 +264,14 @@ export class AgentRunner {
           release?.();
         }
 
+        // Post-digest abort check: brains that honor the kill switch throw
+        // RunAbortedError themselves (the Ollama adapter does); brains that
+        // resolve despite an abort must not let the run proceed - an
+        // aborted run is CEDED, never ACHIEVED.
+        if (this.killSwitch.signal.aborted) {
+          throw new RunAbortedError("kill switch fired during inference");
+        }
+
         // Track tokens
         if (turn.usage) {
           this.totalTokensIn += turn.usage.promptTokens;

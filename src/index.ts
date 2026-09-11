@@ -4,6 +4,7 @@ export * from "./capability/index.js";
 export * from "./policy/index.js";
 export * from "./mcp/index.js";
 export * from "./router/index.js";
+export * from "./session/index.js";
 export * from "./brain/index.js";
 export * from "./hands/index.js";
 export * from "./memory/index.js";

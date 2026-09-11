@@ -29,12 +29,55 @@ export class AgentRunner {
 }
 
 // @public
+export interface AgentRuntime {
+    addMcpServer(config: McpServerConfig): Promise<RegisteredMcpServer>;
+    capabilities(): CapabilityDescriptor[];
+    close(): Promise<void>;
+    createSession(): AgentSession;
+    run(objective: string): Promise<RunResult>;
+    trustMap(): Record<string, string>;
+}
+
+// @public
+export interface AgentRuntimeConfig {
+    approvals?: ApprovalProvider;
+    approvalTimeoutMs?: number;
+    brain?: ThoughtProcess;
+    budgets?: Partial<RunBudgets>;
+    capabilitySelector?: CapabilitySelector;
+    charter?: string;
+    context?: {
+        modelCapacityTokenCeiling?: number;
+        reserveFreshTailCount?: number;
+        digestStyleHint?: string;
+        digestionPipeline?: DigestionPipeline;
+    };
+    mcp?: {
+        servers: McpServerConfig[];
+        limit?: number;
+        callTimeoutMs?: number;
+    };
+    policy?: CapabilityPolicy;
+    router?: ModelRouter;
+    sentinel?: ResourceSentinel;
+    sink?: EventSink;
+    tools?: ToolDefinition[];
+}
+
+// @public
 export class AgentRuntimeError extends Error {
     constructor(message: string, code: string, cause?: unknown | undefined);
     // (undocumented)
     readonly cause?: unknown | undefined;
     // (undocumented)
     readonly code: string;
+}
+
+// @public
+export interface AgentSession {
+    abort(reason?: string): void;
+    readonly lane: readonly ChatMsg[];
+    run(objective: string): Promise<RunResult>;
 }
 
 // @public (undocumented)
@@ -438,6 +481,9 @@ export function createAgentRunner(brain: ThoughtProcess, catalogue: ToolkitCatal
 }): AgentRunner;
 
 // @public
+export function createAgentRuntime(config: AgentRuntimeConfig): Promise<AgentRuntime>;
+
+// @public
 export function createApprovalProvider(requestApproval: (request: ApprovalRequest) => Promise<ApprovalResult>): ApprovalProvider;
 
 // @public
@@ -497,6 +543,9 @@ export class DeclarativeModelRouter implements ModelRouter {
 }
 
 // @public
+export const DEFAULT_AGENT_CHARTER: string;
+
+// @public
 export const DEFAULT_CAPABILITY_PRIORITY = 50;
 
 // @public
@@ -507,6 +556,13 @@ export const DEFAULT_REPEAT_CALL_BINDER_CONFIG: RepeatCallBinderConfig;
 
 // @public
 export const DEFAULT_RUN_BUDGETS: RunBudgets;
+
+// @public
+export const DEFAULT_SENTINEL_TOPOLOGY: {
+    readonly maxParallelInferences: 1;
+    readonly maxParallelTools: 4;
+    readonly maxQueueDepth: 64;
+};
 
 // @public
 export interface DegradedSealOptions {
@@ -1904,6 +1960,7 @@ export class StaticModelRouter implements ModelRouter {
     // (undocumented)
     readonly routerTag: string;
     select(): ThoughtProcess;
+    get singleBrain(): ThoughtProcess;
 }
 
 // @public
