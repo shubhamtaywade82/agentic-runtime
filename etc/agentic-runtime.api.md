@@ -1835,7 +1835,7 @@ export type RunStatus = "ACHIEVED" | "PARTIAL" | "CEDED" | "FAILED";
 export type RunStatusLabel = (typeof RUN_STATUS_LABELS)[number];
 
 // @public
-export const RUNTIME_VERSION = "0.1.0";
+export const RUNTIME_VERSION = "0.2.0";
 
 // @public (undocumented)
 export type RuntimeEventEnvelope = z.infer<typeof RuntimeEventEnvelopeSchema>;

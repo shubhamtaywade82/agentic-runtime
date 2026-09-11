@@ -1,10 +1,38 @@
-# Known Limitations (v0.1.0)
+# Known Limitations (v0.2.0)
 
-This document catalogs the deliberate engineering trade-offs and known limitations in `v0.1.0`. These are not bugs — they are documented boundaries where the architecture has not yet been extended. Each item has a tracked migration path for `v0.2+`.
+This document catalogs the deliberate engineering trade-offs and known limitations in `v0.2.0`. These are not bugs — they are documented boundaries where the architecture has not yet been extended. Each item has a tracked migration path for `v0.3+`.
+
+**Addressed in v0.2.0:** the v0.1 items that shipped in this release are
+marked below. The capability layer (§1 context), progressive discovery,
+per-step capability selection and the policy/approval boundary are now
+stable; MCP tools, resources and prompts are first-class governed
+capabilities with Sentinel routing and human approval gating.
 
 ---
 
-## 1. Plurality Layer Deferred to `./experimental`
+## 0. MCP Client Surface (New in v0.2)
+
+**Scope:** The in-repo MCP client implements the client side of MCP over stdio and streamable HTTP: initialize handshake with protocol negotiation, tools/list+call, resources/list+read, prompts/list+get, cancellation, and the session header convention.
+
+**Not yet implemented (deliberate):** server→client capabilities — sampling
+(`sampling/createMessage`), elicitation (`elicitation/create`), roots
+(`roots/list`) are declined with `-32601` (fail-honest rather than
+pretending). Long-lived server-initiated GET streams, resource
+subscription/`subscribe`, `notifications/message` logging streaming, and
+`structuredContent` round-tripping into tool schemas are also out of scope.
+
+**Impact:** MCP servers that *require* client-side LLM sampling or interactive
+elicitation cannot run against this client yet; ordinary tool/resource/prompt
+servers (the overwhelming majority, including all seven official reference
+servers) work today.
+
+**Migration (v0.3):** implement sampling with a `SamplingBrain` seam (routing
+through the existing ModelRouter), elicitation on top of the ApprovalProvider
+boundary, and roots via a workspace declaration on `McpServerConfig`.
+
+---
+
+## 1. Plurality Layer Deferred
 
 **Scope:** The multi-agent orchestration primitives (`DIVIDE_SERVICE`, `FORUM_PLANNING`, `DEPTH_FUNNEL`, persona bench, `TRUCE_NEGOTIATION`) are excluded from the stable `v0.1` export map.
 
@@ -213,8 +241,34 @@ This document catalogs the deliberate engineering trade-offs and known limitatio
 
 ---
 
+## 0b. Capability Scoring Is Lexical, Not Semantic
+
+**Scope:** `CapabilityIndex` ranking (and therefore `TopKCapabilitySelector`) uses deterministic token/prefix overlap scoring. There are no embeddings, no LLM calls, and no relevance learning.
+
+**Rationale:** Progressive discovery must stay cheap, offline, replayable in tests and free of cold-start dependencies — the selector runs every step.
+
+**Impact:** Discovery quality degrades when tool descriptions are terse or use different vocabulary than the objective (e.g. "find the bug" will not rank a tool described as "triage stack traces"). The escape hatch is explicit `discoverability.keywords` on the ToolDefinition, which rank at weight 2 (above descriptions).
+
+**Migration (v0.3):** optional pluggable `CapabilityScorer` interface; an embedding-based implementation can run behind the existing `gpu-inference` Sentinel class.
+
 ---
 
-**End of Known Limitations.** 
+## 0c. MCP Server Trust and Side Effects Are Operator-Declared
 
-*This document is a living artifact. Items promoted to stable features in `v0.2+` will be removed from this list and appear in the `CHANGELOG.md` with migration guides.*
+**Scope:** `McpServerConfig.trust` and `McpServerConfig.sideEffects` are declarations supplied by the operator at registration time. Tool annotations (`readOnlyHint`, `destructiveHint`) are server-authored hints, not verified guarantees.
+
+**Rationale:** The protocol provides no cryptographic server identity or effect attestation; a malicious server can misreport annotations.
+
+**Impact:** Policy quality is bounded by declaration honesty. The conservative defaults (`trust: "unknown"` → approval required; conservative side-effect declaration → `external-network` routing) mean misconfigured servers fail *toward* more gating, not less.
+
+**Mitigation:** Pin commands/URLs explicitly, prefer `verified`/`official` trust only for servers you control or vetted reference servers, and keep destructive operations behind `manual` grant levels.
+
+**Migration (v0.3):** allow-listed server manifests (hash-pinned commands), and a policy hook for annotation skepticism (requiring approval whenever annotations claim read-only from an untrusted server).
+
+---
+
+---
+
+**End of Known Limitations.**
+
+*This document is a living artifact. Items promoted to stable features in `v0.3+` will be removed from this list and appear in the `CHANGELOG.md` with migration guides.*
