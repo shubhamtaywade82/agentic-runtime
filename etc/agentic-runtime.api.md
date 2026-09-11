@@ -435,6 +435,13 @@ export function createCertifiedEnvelope(intent: ToolCallRequest, overrides?: Par
 export function createCompositePolicy(policies: readonly CapabilityPolicy[]): CompositePolicy;
 
 // @public
+export function createDeclarativeModelRouter(opts: {
+    default: ThoughtProcess;
+    rules: readonly RoutingRule[];
+    tag?: string;
+}): DeclarativeModelRouter;
+
+// @public
 export function createDefaultDigestionPipeline(brain: ThoughtProcess, schedule: RequestSchedule): DigestionPipeline;
 
 // @public
@@ -453,10 +460,26 @@ export function createStandardCatalogue(sink: EventSink): ToolkitCatalogue;
 export function createStaticCapabilitySelector(): StaticCapabilitySelector;
 
 // @public
+export function createStaticModelRouter(brain: ThoughtProcess, tag?: string): StaticModelRouter;
+
+// @public
 export function createTestLease(overrides?: Partial<SandboxLease>): SandboxLease;
 
 // @public
 export function createTopKCapabilitySelector(opts?: TopKCapabilitySelectorOptions): TopKCapabilitySelector;
+
+// @public
+export class DeclarativeModelRouter implements ModelRouter {
+    constructor(opts: {
+        default: ThoughtProcess;
+        rules: readonly RoutingRule[];
+        tag?: string;
+    });
+    get defaultBrain(): ThoughtProcess;
+    // (undocumented)
+    readonly routerTag: string;
+    select(request: ModelSelectionRequest): ThoughtProcess;
+}
 
 // @public
 export const DEFAULT_CAPABILITY_PRIORITY = 50;
@@ -1323,8 +1346,34 @@ export const MEMORY_METRICS: {
 // @public (undocumented)
 export type MetricName = (typeof ALL_METRIC_NAMES)[number];
 
+// @public
+export const MODEL_SELECTION_PHASES: readonly ["step", "seal", "summarize", "dispute"];
+
 // @public (undocumented)
 export type ModelLabel = string;
+
+// @public
+export interface ModelRouter {
+    readonly routerTag: string;
+    // (undocumented)
+    select(request: ModelSelectionRequest): ThoughtProcess;
+}
+
+// @public (undocumented)
+export type ModelSelectionPhase = (typeof MODEL_SELECTION_PHASES)[number];
+
+// @public
+export interface ModelSelectionRequest {
+    contextPressure: number;
+    inferenceFailures: number;
+    mountedToolCount: number;
+    // (undocumented)
+    objective: string;
+    // (undocumented)
+    phase: ModelSelectionPhase;
+    // (undocumented)
+    stepIndex: number;
+}
 
 // @public
 export interface MountedCapabilities {
@@ -1637,6 +1686,22 @@ export class ResourceSentinel {
     readonly handsGate: ConcurrencyGate;
 }
 
+// @public
+export interface RoutingRule {
+    // (undocumented)
+    brain: ThoughtProcess;
+    description?: string;
+    // (undocumented)
+    when: {
+        phase?: ModelSelectionPhase | readonly ModelSelectionPhase[];
+        objectiveMatches?: string | RegExp;
+        minMountedTools?: number;
+        contextPressureAbove?: number;
+        stepIndexAbove?: number;
+        minInferenceFailures?: number;
+    };
+}
+
 // @public (undocumented)
 export const RUN_EXIT_REASON_LABELS: readonly ["objective_met", "wall_clock_exhausted", "cog_steps_exhausted", "intents_exhausted", "operator_abort", "transport_failure", "synthesis_failure"];
 
@@ -1816,6 +1881,14 @@ export const SMART_LIMIT_BYTES = 48000;
 // @public
 export class StaticCapabilitySelector implements CapabilitySelector {
     select(input: CapabilitySelectionInput): Promise<MountedCapabilities>;
+}
+
+// @public
+export class StaticModelRouter implements ModelRouter {
+    constructor(brain: ThoughtProcess, tag?: string);
+    // (undocumented)
+    readonly routerTag: string;
+    select(): ThoughtProcess;
 }
 
 // @public
