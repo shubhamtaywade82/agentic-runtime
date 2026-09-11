@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     "core/index": "src/core/index.ts",
+    "capability/index": "src/capability/index.ts",
     "brain/index": "src/brain/index.ts",
     "hands/index": "src/hands/index.ts",
     "memory/index": "src/memory/index.ts",

@@ -340,6 +340,30 @@ export const SINK_METRICS = {
 } as const;
 
 // ============================================================================
+// Capability Layer (progressive discovery)
+// ============================================================================
+
+/** Capability-layer metric names */
+/** @public */
+export const CAPABILITY_METRICS = {
+  /** Counter: capabilities registered into the router, by source and kind */
+  REGISTRATIONS_TOTAL: "runtime_capability_registrations_total",
+
+  /** Gauge: size of the active mounted capability set per step */
+  MOUNTED_SIZE: "runtime_capability_mounted_size",
+
+  /** Counter: server capability sets dropped from the index */
+  FORGOTTEN_SERVERS_TOTAL: "runtime_capability_forgotten_servers_total",
+} as const;
+
+/** Capability metric label keys */
+/** @public */
+export const CAPABILITY_LABEL_KEYS = {
+  SOURCE: "source",
+  KIND: "kind",
+} as const;
+
+// ============================================================================
 // Canonical Envelope Schema
 // ============================================================================
 
@@ -375,6 +399,7 @@ export const ALL_METRIC_NAMES = [
   ...Object.values(DISPUTE_METRICS),
   ...Object.values(SYNTHESIS_METRICS),
   ...Object.values(SINK_METRICS),
+  ...Object.values(CAPABILITY_METRICS),
 ] as const;
 
 /** @public */

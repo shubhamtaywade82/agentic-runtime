@@ -31,7 +31,7 @@ export class AgentRuntimeError extends Error {
 }
 
 // @public (undocumented)
-export const ALL_METRIC_NAMES: readonly ("runtime_gate_wait_ms" | "runtime_gate_active" | "runtime_gate_waiting" | "runtime_gate_grants_total" | "runtime_gate_refunds_total" | "runtime_gate_saturation_total" | "runtime_inference_ms" | "runtime_tokens_prompt_total" | "runtime_tokens_eval_total" | "runtime_inference_turns_total" | "runtime_inference_truncations_total" | "runtime_tool_ms" | "runtime_tool_failures_total" | "runtime_tool_invocations_total" | "runtime_tool_bytes_transferred_total" | "runtime_run_status_total" | "runtime_run_ms" | "runtime_run_steps_total" | "runtime_run_intents_total" | "runtime_run_salvage_total" | "runtime_digestions_total" | "runtime_ctx_est_tokens" | "runtime_ctx_lane_length" | "runtime_ctx_pins_total" | "runtime_disputes_total" | "runtime_dispute_ms" | "runtime_dispute_quarantine_total" | "runtime_dispute_oscillation_total" | "runtime_seals_total" | "runtime_seal_violations_total" | "runtime_seal_ms" | "runtime_seal_reseal_attempts_total" | "runtime_sink_emitted_total" | "runtime_sink_dropped_total" | "runtime_sink_listener_errors_total")[];
+export const ALL_METRIC_NAMES: readonly ("runtime_gate_wait_ms" | "runtime_gate_active" | "runtime_gate_waiting" | "runtime_gate_grants_total" | "runtime_gate_refunds_total" | "runtime_gate_saturation_total" | "runtime_inference_ms" | "runtime_tokens_prompt_total" | "runtime_tokens_eval_total" | "runtime_inference_turns_total" | "runtime_inference_truncations_total" | "runtime_tool_ms" | "runtime_tool_failures_total" | "runtime_tool_invocations_total" | "runtime_tool_bytes_transferred_total" | "runtime_run_status_total" | "runtime_run_ms" | "runtime_run_steps_total" | "runtime_run_intents_total" | "runtime_run_salvage_total" | "runtime_digestions_total" | "runtime_ctx_est_tokens" | "runtime_ctx_lane_length" | "runtime_ctx_pins_total" | "runtime_disputes_total" | "runtime_dispute_ms" | "runtime_dispute_quarantine_total" | "runtime_dispute_oscillation_total" | "runtime_seals_total" | "runtime_seal_violations_total" | "runtime_seal_ms" | "runtime_seal_reseal_attempts_total" | "runtime_sink_emitted_total" | "runtime_sink_dropped_total" | "runtime_sink_listener_errors_total" | "runtime_capability_registrations_total" | "runtime_capability_mounted_size" | "runtime_capability_forgotten_servers_total")[];
 
 // @public
 export function assertContract<T>(schema: z.ZodType<T>): Contract<T>;
@@ -79,6 +79,151 @@ export class BudgetExhaustedError extends AgentRuntimeError {
     // (undocumented)
     readonly limit: number;
 }
+
+// @public
+export const CAPABILITY_KINDS: readonly ["tool", "resource", "prompt"];
+
+// @public (undocumented)
+export const CAPABILITY_LABEL_KEYS: {
+    readonly SOURCE: "source";
+    readonly KIND: "kind";
+};
+
+// @public (undocumented)
+export const CAPABILITY_METRICS: {
+    readonly REGISTRATIONS_TOTAL: "runtime_capability_registrations_total";
+    readonly MOUNTED_SIZE: "runtime_capability_mounted_size";
+    readonly FORGOTTEN_SERVERS_TOTAL: "runtime_capability_forgotten_servers_total";
+};
+
+// @public
+export const CAPABILITY_SOURCES: readonly ["native", "mcp", "remote"];
+
+// @public
+export interface CapabilityDescriptor {
+    // (undocumented)
+    description: string;
+    // (undocumented)
+    discoverability?: CapabilityDiscoverability;
+    // (undocumented)
+    effects?: "pure" | "transactional";
+    // (undocumented)
+    grantLevel?: GrantLevel;
+    id: string;
+    inputSchema?: JSONSchema7;
+    // (undocumented)
+    kind: CapabilityKind;
+    name: string;
+    permissions?: string[];
+    // (undocumented)
+    resourceClass?: ResourceClass;
+    serverId?: string;
+    // (undocumented)
+    sideEffects?: CapabilitySideEffects;
+    // (undocumented)
+    source: CapabilitySource;
+    // (undocumented)
+    version?: string;
+}
+
+// @public
+export interface CapabilityDiscoverability {
+    category?: string | undefined;
+    keywords: string[];
+    priority?: number | undefined;
+}
+
+// @public
+export function capabilityId(source: CapabilitySource, serverId: string | undefined, name: string): string;
+
+// @public
+export class CapabilityIndex {
+    clear(): this;
+    get(id: string): CapabilityDescriptor | undefined;
+    list(filter?: {
+        kinds?: readonly CapabilityKind[];
+        sources?: readonly CapabilitySource[];
+    }): CapabilityDescriptor[];
+    register(...descriptors: readonly CapabilityDescriptor[]): this;
+    search(query: string, opts?: CapabilitySearchOptions): ScoredCapability[];
+    get size(): number;
+    unregister(ids: readonly string[]): this;
+    unregisterServer(serverId: string): this;
+}
+
+// @public (undocumented)
+export type CapabilityKind = (typeof CAPABILITY_KINDS)[number];
+
+// @public
+export interface CapabilityManifest {
+    // (undocumented)
+    description: string;
+    // (undocumented)
+    name: string;
+    // (undocumented)
+    parametersJsonSchema: JSONSchema7;
+}
+
+// @public
+export class CapabilityRouter {
+    constructor(opts: CapabilityRouterOptions);
+    allManifests(): CapabilityManifest[];
+    forgetServer(serverId: string): void;
+    getCatalogue(): ToolkitCatalogue;
+    getIndex(): CapabilityIndex;
+    manifestsFor(mounted: MountedCapabilities): CapabilityManifest[];
+    registerNativeTools(tools: readonly ToolDefinition[]): RegisteredCapability[];
+    registerTools(tools: readonly ToolDefinition[], source: CapabilitySource, serverId: string | undefined): RegisteredCapability[];
+}
+
+// @public
+export interface CapabilityRouterOptions {
+    // (undocumented)
+    sentinel?: ResourceSentinel;
+    // (undocumented)
+    sink: EventSink;
+}
+
+// @public
+export interface CapabilitySearchOptions {
+    kinds?: readonly CapabilityKind[];
+    limit?: number;
+    sources?: readonly CapabilitySource[];
+}
+
+// @public
+export interface CapabilitySelectionInput {
+    // (undocumented)
+    available: readonly CapabilityDescriptor[];
+    // (undocumented)
+    context: readonly ChatMsg[];
+    contextPressure?: number;
+    // (undocumented)
+    objective: string;
+    // (undocumented)
+    stepIndex?: number;
+}
+
+// @public
+export interface CapabilitySelector {
+    // (undocumented)
+    select(input: CapabilitySelectionInput): Promise<MountedCapabilities>;
+}
+
+// @public
+export interface CapabilitySideEffects {
+    // (undocumented)
+    database?: "none" | "read" | "write" | undefined;
+    // (undocumented)
+    filesystem?: "read" | "write" | undefined;
+    // (undocumented)
+    network?: "none" | "read" | "write" | undefined;
+    // (undocumented)
+    process?: boolean | undefined;
+}
+
+// @public (undocumented)
+export type CapabilitySource = (typeof CAPABILITY_SOURCES)[number];
 
 // @public
 export interface CertifiedContractEnvelope {
@@ -222,7 +367,16 @@ export function createRepeatCallBinder(config?: RepeatCallBinderConfig): RepeatC
 export function createStandardCatalogue(sink: EventSink): ToolkitCatalogue;
 
 // @public
+export function createStaticCapabilitySelector(): StaticCapabilitySelector;
+
+// @public
 export function createTestLease(overrides?: Partial<SandboxLease>): SandboxLease;
+
+// @public
+export function createTopKCapabilitySelector(opts?: TopKCapabilitySelectorOptions): TopKCapabilitySelector;
+
+// @public
+export const DEFAULT_CAPABILITY_PRIORITY = 50;
 
 // @public
 export const DEFAULT_COMPACTION_THRESHOLD = 0.85;
@@ -659,6 +813,13 @@ export type MetricName = (typeof ALL_METRIC_NAMES)[number];
 export type ModelLabel = string;
 
 // @public
+export interface MountedCapabilities {
+    // (undocumented)
+    capabilities: readonly CapabilityDescriptor[];
+    rationale: string;
+}
+
+// @public
 export interface MountedTools {
     // (undocumented)
     manifests: ReadonlyArray<{
@@ -751,6 +912,14 @@ export const ProgressSchema: z.ZodObject<{
     totalKnownTasks: number | null;
     currentActivity: string;
 }>;
+
+// @public
+export interface RegisteredCapability {
+    // (undocumented)
+    descriptor: CapabilityDescriptor;
+    // (undocumented)
+    manifest: CapabilityManifest;
+}
 
 // @public
 export class RepeatCallBinder {
@@ -967,6 +1136,18 @@ export interface SandboxLease {
 }
 
 // @public
+export function scoreCapabilities(query: string, capabilities: readonly CapabilityDescriptor[]): ScoredCapability[];
+
+// @public
+export interface ScoredCapability {
+    // (undocumented)
+    descriptor: CapabilityDescriptor;
+    matchedTerms: string[];
+    // (undocumented)
+    score: number;
+}
+
+// @public
 export const SEAL_ENTROPY_OVERRIDE = 0.2;
 
 // @public (undocumented)
@@ -1018,6 +1199,11 @@ export const SINK_METRICS: {
 
 // @public
 export const SMART_LIMIT_BYTES = 48000;
+
+// @public
+export class StaticCapabilitySelector implements CapabilitySelector {
+    select(input: CapabilitySelectionInput): Promise<MountedCapabilities>;
+}
 
 // @public (undocumented)
 export const SYNTHESIS_LABEL_KEYS: {
@@ -1077,6 +1263,9 @@ export interface ThoughtProcess {
 // @public
 export function toJsonSchema(schema: Contract<unknown> | AnyZodType): JSONSchema7;
 
+// @public
+export function tokenizeForSearch(text: string): string[];
+
 // @public (undocumented)
 export const TOOL_CLASS_LABELS: readonly ["search", "read", "write", "compute", "fetch", "validate", "lint", "audit", "local_sandbox", "external_network", "external_database", "gpu_inference"];
 
@@ -1116,6 +1305,7 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
     argsShape: Contract<TArgs>;
     // (undocumented)
     caption: string;
+    discoverability?: ToolDiscoverability;
     effects: "pure" | "transactional";
     // (undocumented)
     grantLevel: GrantLevel;
@@ -1126,12 +1316,17 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
     invoke: (args: TArgs, lease: SandboxLease | ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
     // (undocumented)
     maxOutputChars?: number;
+    permissions?: string[];
     reflect?: (raw: ToolResult) => unknown;
     // (undocumented)
     resourceClass: ResourceClass;
+    serverId?: string;
+    sideEffects?: ToolSideEffects;
+    source?: "native" | "mcp" | "remote";
     targetModelId?: string;
     // (undocumented)
     timeoutMs?: number;
+    version?: string;
 }
 
 // @public
@@ -1144,6 +1339,39 @@ export const ToolDefinitionSchema: z.ZodObject<{
     grantLevel: z.ZodDefault<z.ZodEnum<["auto", "acknowledged", "acknowledged-privileged", "manual"]>>;
     maxOutputChars: z.ZodOptional<z.ZodNumber>;
     timeoutMs: z.ZodOptional<z.ZodNumber>;
+    source: z.ZodOptional<z.ZodEnum<["native", "mcp", "remote"]>>;
+    serverId: z.ZodOptional<z.ZodString>;
+    version: z.ZodOptional<z.ZodString>;
+    sideEffects: z.ZodOptional<z.ZodObject<{
+        filesystem: z.ZodOptional<z.ZodEnum<["read", "write"]>>;
+        network: z.ZodOptional<z.ZodEnum<["none", "read", "write"]>>;
+        database: z.ZodOptional<z.ZodEnum<["none", "read", "write"]>>;
+        process: z.ZodOptional<z.ZodBoolean>;
+    }, "strip", z.ZodTypeAny, {
+        filesystem?: "read" | "write" | undefined;
+        network?: "read" | "write" | "none" | undefined;
+        database?: "read" | "write" | "none" | undefined;
+        process?: boolean | undefined;
+    }, {
+        filesystem?: "read" | "write" | undefined;
+        network?: "read" | "write" | "none" | undefined;
+        database?: "read" | "write" | "none" | undefined;
+        process?: boolean | undefined;
+    }>>;
+    discoverability: z.ZodOptional<z.ZodObject<{
+        keywords: z.ZodArray<z.ZodString, "many">;
+        category: z.ZodOptional<z.ZodString>;
+        priority: z.ZodOptional<z.ZodNumber>;
+    }, "strip", z.ZodTypeAny, {
+        keywords: string[];
+        category?: string | undefined;
+        priority?: number | undefined;
+    }, {
+        keywords: string[];
+        category?: string | undefined;
+        priority?: number | undefined;
+    }>>;
+    permissions: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
 }, "strip", z.ZodTypeAny, {
     handle: string;
     caption: string;
@@ -1153,6 +1381,21 @@ export const ToolDefinitionSchema: z.ZodObject<{
     grantLevel: "auto" | "acknowledged" | "acknowledged-privileged" | "manual";
     maxOutputChars?: number | undefined;
     timeoutMs?: number | undefined;
+    source?: "native" | "mcp" | "remote" | undefined;
+    serverId?: string | undefined;
+    version?: string | undefined;
+    sideEffects?: {
+        filesystem?: "read" | "write" | undefined;
+        network?: "read" | "write" | "none" | undefined;
+        database?: "read" | "write" | "none" | undefined;
+        process?: boolean | undefined;
+    } | undefined;
+    discoverability?: {
+        keywords: string[];
+        category?: string | undefined;
+        priority?: number | undefined;
+    } | undefined;
+    permissions?: string[] | undefined;
 }, {
     handle: string;
     caption: string;
@@ -1162,6 +1405,39 @@ export const ToolDefinitionSchema: z.ZodObject<{
     grantLevel?: "auto" | "acknowledged" | "acknowledged-privileged" | "manual" | undefined;
     maxOutputChars?: number | undefined;
     timeoutMs?: number | undefined;
+    source?: "native" | "mcp" | "remote" | undefined;
+    serverId?: string | undefined;
+    version?: string | undefined;
+    sideEffects?: {
+        filesystem?: "read" | "write" | undefined;
+        network?: "read" | "write" | "none" | undefined;
+        database?: "read" | "write" | "none" | undefined;
+        process?: boolean | undefined;
+    } | undefined;
+    discoverability?: {
+        keywords: string[];
+        category?: string | undefined;
+        priority?: number | undefined;
+    } | undefined;
+    permissions?: string[] | undefined;
+}>;
+
+// @public (undocumented)
+export type ToolDiscoverability = z.infer<typeof ToolDiscoverabilitySchema>;
+
+// @public
+export const ToolDiscoverabilitySchema: z.ZodObject<{
+    keywords: z.ZodArray<z.ZodString, "many">;
+    category: z.ZodOptional<z.ZodString>;
+    priority: z.ZodOptional<z.ZodNumber>;
+}, "strip", z.ZodTypeAny, {
+    keywords: string[];
+    category?: string | undefined;
+    priority?: number | undefined;
+}, {
+    keywords: string[];
+    category?: string | undefined;
+    priority?: number | undefined;
 }>;
 
 // @public
@@ -1239,6 +1515,46 @@ export interface ToolResult {
     toolCallId: string;
     // (undocumented)
     trustLevel: "verified" | "trusted" | "unverified";
+}
+
+// @public (undocumented)
+export type ToolSideEffects = z.infer<typeof ToolSideEffectsSchema>;
+
+// @public
+export const ToolSideEffectsSchema: z.ZodObject<{
+    filesystem: z.ZodOptional<z.ZodEnum<["read", "write"]>>;
+    network: z.ZodOptional<z.ZodEnum<["none", "read", "write"]>>;
+    database: z.ZodOptional<z.ZodEnum<["none", "read", "write"]>>;
+    process: z.ZodOptional<z.ZodBoolean>;
+}, "strip", z.ZodTypeAny, {
+    filesystem?: "read" | "write" | undefined;
+    network?: "read" | "write" | "none" | undefined;
+    database?: "read" | "write" | "none" | undefined;
+    process?: boolean | undefined;
+}, {
+    filesystem?: "read" | "write" | undefined;
+    network?: "read" | "write" | "none" | undefined;
+    database?: "read" | "write" | "none" | undefined;
+    process?: boolean | undefined;
+}>;
+
+// @public
+export function toolToCapability(tool: ToolDefinition, opts?: {
+    source?: CapabilitySource | undefined;
+    serverId?: string | undefined;
+}): CapabilityDescriptor;
+
+// @public
+export class TopKCapabilitySelector implements CapabilitySelector {
+    constructor(opts?: TopKCapabilitySelectorOptions);
+    select(input: CapabilitySelectionInput): Promise<MountedCapabilities>;
+}
+
+// @public
+export interface TopKCapabilitySelectorOptions {
+    contextWindow?: number;
+    kinds?: readonly CapabilityKind[];
+    limit?: number;
 }
 
 // @public
