@@ -16,6 +16,13 @@ export class AgentRunner {
         selfQuestionProfile?: string | null;
         sentinel?: ResourceSentinel;
         sealer?: SynthesisEngine;
+        capabilitySelector?: CapabilitySelector;
+        policy?: CapabilityPolicy;
+        approvals?: ApprovalProvider;
+        approvalTimeoutMs?: number;
+        router?: ModelRouter;
+        laneMode?: "replace" | "append";
+        sink?: EventSink;
     });
     getAbortController(): AbortController;
     run(objective: string): Promise<RunResult>;
@@ -365,6 +372,7 @@ export interface ConstraintPayload {
 export class ContextManager {
     constructor(config: ContextManagerConfig, pipeline: DigestionPipeline, initialMessages?: ChatMsg[]);
     append(message: ChatMsg): void;
+    contextPressure(): number;
     digestions: number;
     estimateTokens(): number;
     formatForSynthesis(): string;
@@ -420,6 +428,13 @@ export function createAgentRunner(brain: ThoughtProcess, catalogue: ToolkitCatal
     selfQuestionProfile?: string | null;
     sentinel?: ResourceSentinel;
     sealer?: SynthesisEngine;
+    capabilitySelector?: CapabilitySelector;
+    policy?: CapabilityPolicy;
+    approvals?: ApprovalProvider;
+    approvalTimeoutMs?: number;
+    router?: ModelRouter;
+    laneMode?: "replace" | "append";
+    sink?: EventSink;
 }): AgentRunner;
 
 // @public
