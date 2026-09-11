@@ -10,13 +10,27 @@ jobs:
   verify:
     name: lint + build + test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    env:
+      # Run the exact pnpm installed below instead of self-switching to the
+      # packageManager pin mid-run (pnpm >= 10 hops versions by default).
+      # Required on the Node 20 leg; harmless everywhere else.
+      npm_config_manage_package_manager_versions: "false"
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20.x, 22.x]
+        include:
+          # pnpm 11 requires Node >= 22.13 and aborts on Node 20, so that leg
+          # pins pnpm 10 — same lockfileVersion 9.0 lockfile, Node >= 18.12.
+          # The runtime still claims Node >= 20 (package.json engines).
+          - node-version: 20.x
+            pnpm-version: "10"
+          - node-version: 22.x
+            pnpm-version: "11.24.0"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ matrix.pnpm-version }}
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
