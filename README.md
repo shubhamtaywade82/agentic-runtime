@@ -55,12 +55,12 @@ pnpm add @nemesis-oss/agentic-runtime@^0.1.0
 
 ```typescript
 import {
+  ContextManager,
   createAgentRunner,
   createOllamaThoughtProcess,
   createStandardCatalogue,
   createDefaultDigestionPipeline,
 } from "@nemesis-oss/agentic-runtime";
-import { OllamaClient } from "@nemesis-oss/ollama-sdk";
 
 // 1. Brain — Ollama adapter
 const brain = createOllamaThoughtProcess(
@@ -76,7 +76,6 @@ const catalogue = createStandardCatalogue({
 // 3. Memory — Context manager with digestion
 const digestionPipeline = createDefaultDigestionPipeline(brain, {
   mounting: { manifests: [] },
-  constrain: undefined,
   idleLiveSeconds: 1800,
   entropyOverride: 0.1,
   upperBoundTokenCount: 8000,
