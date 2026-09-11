@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
 import { StdioTransport, StreamableHttpTransport, anySignal } from "../../src/mcp/transport.js";
 import { McpClient } from "../../src/mcp/client.js";
 import { McpTransportError } from "../../src/mcp/errors.js";
@@ -12,7 +13,7 @@ afterEach(async () => {
 });
 
 describe("StdioTransport (real child process)", () => {
-  const fixture = "/home/z/my-project/agentic-runtime/test/fixtures/fake-mcp-server.mjs";
+  const fixture = fileURLToPath(new URL("../fixtures/fake-mcp-server.mjs", import.meta.url));
 
   it("speaks NDJSON JSON-RPC end-to-end with a full client", async () => {
     const transport = new StdioTransport({ command: process.execPath, args: [fixture] });

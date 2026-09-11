@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { fileURLToPath } from "node:url";
 import { jsonSchemaContract } from "../../src/mcp/schema-contract.js";
 import {
   mcpToolsToToolDefinitions,
@@ -18,6 +19,10 @@ import type { McpServerSideEffectsDeclaration, McpTool } from "../../src/mcp/typ
 import { CONSERVATIVE_SIDE_EFFECTS } from "../../src/mcp/types.js";
 
 const noopSink = { emit: () => {} };
+
+// Resolved from this file so the suite is machine-independent (CI checkouts
+// live outside the dev sandbox that authored these tests).
+const mcpFixturePath = fileURLToPath(new URL("../fixtures/fake-mcp-server.mjs", import.meta.url));
 
 const fsTool: McpTool = {
   name: "read_file",
@@ -288,7 +293,7 @@ describe("McpServerRegistry", () => {
       serverId: "fakefs",
       transport: "stdio",
       command: process.execPath,
-      args: ["/home/z/my-project/agentic-runtime/test/fixtures/fake-mcp-server.mjs"],
+      args: [mcpFixturePath],
       trust: "verified",
       sideEffects: fsSideEffects,
     });
@@ -312,14 +317,14 @@ describe("McpServerRegistry", () => {
       serverId: "dup",
       transport: "stdio",
       command: process.execPath,
-      args: ["/home/z/my-project/agentic-runtime/test/fixtures/fake-mcp-server.mjs"],
+      args: [mcpFixturePath],
     });
     await expect(
       registry.connect({
         serverId: "dup",
         transport: "stdio",
         command: process.execPath,
-        args: ["/home/z/my-project/agentic-runtime/test/fixtures/fake-mcp-server.mjs"],
+        args: [mcpFixturePath],
       }),
     ).rejects.toThrowError(/already registered/);
     await registry.disconnectAll();
@@ -359,7 +364,7 @@ describe("ProgressiveDiscovery", () => {
       serverId: "filesystem",
       transport: "stdio",
       command: process.execPath,
-      args: ["/home/z/my-project/agentic-runtime/test/fixtures/fake-mcp-server.mjs"],
+      args: [mcpFixturePath],
       trust: "verified",
       sideEffects: fsSideEffects,
     });
@@ -389,7 +394,7 @@ describe("ProgressiveDiscovery", () => {
       serverId: "filesystem",
       transport: "stdio",
       command: process.execPath,
-      args: ["/home/z/my-project/agentic-runtime/test/fixtures/fake-mcp-server.mjs"],
+      args: [mcpFixturePath],
       sideEffects: fsSideEffects,
     });
     expect(router.getIndex().list({ sources: ["mcp"] })).toHaveLength(2);

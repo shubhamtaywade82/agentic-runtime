@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
+import { fileURLToPath } from "node:url";
 import { createAgentRuntime, DEFAULT_AGENT_CHARTER } from "../../src/session/runtime.js";
 import type { ToolResult } from "../../src/core/types.js";
 import {
@@ -37,7 +38,7 @@ const echoTool = {
   }),
 };
 
-const mcpFixture = "/home/z/my-project/agentic-runtime/test/fixtures/fake-mcp-server.mjs";
+const mcpFixture = fileURLToPath(new URL("../fixtures/fake-mcp-server.mjs", import.meta.url));
 
 describe("createAgentRuntime - configuration", () => {
   it("requires exactly one of brain/router (fail-closed)", async () => {
