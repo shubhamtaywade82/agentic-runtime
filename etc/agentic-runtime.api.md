@@ -2341,7 +2341,7 @@ export class ToolInvocationError extends Error {
     readonly category: "validation" | "execution" | "timeout" | "denied" | "unknown_tool";
 }
 
-// @public (undocumented)
+// @public
 export class ToolkitCatalogue {
     constructor(sinkOrTools?: EventSink | Array<ToolDefinition | any>, sentinel?: ResourceSentinel | undefined);
     executeDirect<TArgs extends Record<string, unknown>>(handle: string, args: TArgs, lease: SandboxLease, cancelToken: AbortSignal): Promise<ToolResult>;
