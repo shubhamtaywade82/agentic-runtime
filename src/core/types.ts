@@ -560,14 +560,21 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
   grantLevel: GrantLevel;
   maxOutputChars?: number;
   timeoutMs?: number;
-  invoke: (args: TArgs, lease: SandboxLease | ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
+  /**
+   * Execute the tool. Declared with method syntax on purpose: method
+   * parameters are checked bivariantly, so a ToolDefinition<{city: string}>
+   * remains assignable wherever a generic tool definition is accepted
+   * (catalogues, capability router, createAgentRuntime) without forcing
+   * consumers into `any`.
+   */
+  invoke(args: TArgs, lease: SandboxLease | ResourceLease, cancelToken: AbortSignal): Promise<ToolResult>;
   /** Optional projection to strip noise before persisting digests. */
   reflect?: (raw: ToolResult) => unknown;
   /**
    * Required for "transactional" tools. Generates a deterministic key from arguments
    * to enable safe re-dispatch (e.g., HTTP POST with same idempotency key).
    */
-  idempotencyKey?: (args: TArgs) => string;
+  idempotencyKey?(args: TArgs): string;
   /**
    * Required when resourceClass is "gpu-inference". Specifies the model ID
    * to route the inference through the correct per-model concurrency gate.

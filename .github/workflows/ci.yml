@@ -55,3 +55,28 @@ jobs:
       # default-matrix verify leg above.
       - name: Test
         run: pnpm test
+
+  package-verify:
+    name: tarball consumer verification (Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Build (tsup + api-extractor baseline check)
+        run: pnpm build
+      - name: Test
+        run: pnpm test
+      # Protects the npm contract: pack -> install into a fresh consumer ->
+      # strict-compile all examples against the tarball (README quickstart
+      # included) -> run the offline example -> import-smoke every subpath.
+      - name: Verify packed artifact
+        run: pnpm verify:package

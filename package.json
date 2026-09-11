@@ -46,6 +46,7 @@
     "test:smoke": "OLLAMA_SMOKE=1 vitest run test/integration",
     "test:fuzz": "vitest run test/unit/gate-fuzz.test.ts",
     "lint": "eslint src --ext .ts",
+    "verify:package": "node scripts/verify-package.mjs",
     "api-extractor": "api-extractor run --local --verbose"
   },
   "devDependencies": {

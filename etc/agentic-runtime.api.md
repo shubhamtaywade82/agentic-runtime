@@ -2119,9 +2119,8 @@ export interface ToolDefinition<TArgs extends Record<string, unknown> = Record<s
     grantLevel: GrantLevel;
     // (undocumented)
     handle: string;
-    idempotencyKey?: (args: TArgs) => string;
-    // (undocumented)
-    invoke: (args: TArgs, lease: SandboxLease | ResourceLease, cancelToken: AbortSignal) => Promise<ToolResult>;
+    idempotencyKey?(args: TArgs): string;
+    invoke(args: TArgs, lease: SandboxLease | ResourceLease, cancelToken: AbortSignal): Promise<ToolResult>;
     // (undocumented)
     maxOutputChars?: number;
     permissions?: string[];
