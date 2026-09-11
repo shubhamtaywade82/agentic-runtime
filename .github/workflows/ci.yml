@@ -28,9 +28,12 @@ jobs:
             pnpm-version: "11.24.0"
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ matrix.pnpm-version }}
+      # pnpm/action-setup refuses to run when its `version` input conflicts
+      # with the packageManager pin, and the Node 20 leg cannot use the pin
+      # (pnpm 11 needs Node >= 22.13) — so install pnpm directly per leg.
+      # The env var above keeps pnpm from hopping to the pin mid-run.
+      - name: Install pnpm ${{ matrix.pnpm-version }}
+        run: npm install -g pnpm@${{ matrix.pnpm-version }}
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
