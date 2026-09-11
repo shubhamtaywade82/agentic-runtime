@@ -31,7 +31,50 @@ export class AgentRuntimeError extends Error {
 }
 
 // @public (undocumented)
-export const ALL_METRIC_NAMES: readonly ("runtime_gate_wait_ms" | "runtime_gate_active" | "runtime_gate_waiting" | "runtime_gate_grants_total" | "runtime_gate_refunds_total" | "runtime_gate_saturation_total" | "runtime_inference_ms" | "runtime_tokens_prompt_total" | "runtime_tokens_eval_total" | "runtime_inference_turns_total" | "runtime_inference_truncations_total" | "runtime_tool_ms" | "runtime_tool_failures_total" | "runtime_tool_invocations_total" | "runtime_tool_bytes_transferred_total" | "runtime_run_status_total" | "runtime_run_ms" | "runtime_run_steps_total" | "runtime_run_intents_total" | "runtime_run_salvage_total" | "runtime_digestions_total" | "runtime_ctx_est_tokens" | "runtime_ctx_lane_length" | "runtime_ctx_pins_total" | "runtime_disputes_total" | "runtime_dispute_ms" | "runtime_dispute_quarantine_total" | "runtime_dispute_oscillation_total" | "runtime_seals_total" | "runtime_seal_violations_total" | "runtime_seal_ms" | "runtime_seal_reseal_attempts_total" | "runtime_sink_emitted_total" | "runtime_sink_dropped_total" | "runtime_sink_listener_errors_total" | "runtime_capability_registrations_total" | "runtime_capability_mounted_size" | "runtime_capability_forgotten_servers_total")[];
+export const ALL_METRIC_NAMES: readonly ("runtime_gate_wait_ms" | "runtime_gate_active" | "runtime_gate_waiting" | "runtime_gate_grants_total" | "runtime_gate_refunds_total" | "runtime_gate_saturation_total" | "runtime_inference_ms" | "runtime_tokens_prompt_total" | "runtime_tokens_eval_total" | "runtime_inference_turns_total" | "runtime_inference_truncations_total" | "runtime_tool_ms" | "runtime_tool_failures_total" | "runtime_tool_invocations_total" | "runtime_tool_bytes_transferred_total" | "runtime_run_status_total" | "runtime_run_ms" | "runtime_run_steps_total" | "runtime_run_intents_total" | "runtime_run_salvage_total" | "runtime_digestions_total" | "runtime_ctx_est_tokens" | "runtime_ctx_lane_length" | "runtime_ctx_pins_total" | "runtime_disputes_total" | "runtime_dispute_ms" | "runtime_dispute_quarantine_total" | "runtime_dispute_oscillation_total" | "runtime_seals_total" | "runtime_seal_violations_total" | "runtime_seal_ms" | "runtime_seal_reseal_attempts_total" | "runtime_sink_emitted_total" | "runtime_sink_dropped_total" | "runtime_sink_listener_errors_total" | "runtime_capability_registrations_total" | "runtime_capability_mounted_size" | "runtime_capability_forgotten_servers_total" | "runtime_policy_decisions_total" | "runtime_policy_approvals_total" | "runtime_policy_approval_timeouts_total")[];
+
+// @public
+export class AllowAllPolicy implements CapabilityPolicy {
+    evaluate(): PolicyDecision;
+}
+
+// @public
+export const APPROVAL_SCOPES: readonly ["standard", "privileged"];
+
+// @public
+export interface ApprovalProvider {
+    // (undocumented)
+    requestApproval(request: ApprovalRequest): Promise<ApprovalResult>;
+}
+
+// @public
+export class ApprovalProviderError extends AgentRuntimeError {
+    constructor(message: string, cause?: unknown);
+}
+
+// @public
+export interface ApprovalRequest {
+    // (undocumented)
+    capability: CapabilityDescriptor;
+    // (undocumented)
+    objective: string;
+    // (undocumented)
+    reason: string;
+    // (undocumented)
+    scope: ApprovalScope;
+    // (undocumented)
+    stepIndex: number;
+}
+
+// @public
+export interface ApprovalResult {
+    // (undocumented)
+    approved: boolean;
+    note?: string;
+}
+
+// @public (undocumented)
+export type ApprovalScope = (typeof APPROVAL_SCOPES)[number];
 
 // @public
 export function assertContract<T>(schema: z.ZodType<T>): Contract<T>;
@@ -47,6 +90,12 @@ export interface AssistantTurn {
     // (undocumented)
     usage: TurnUsage | null;
 }
+
+// @public
+export function autoApprove(): ApprovalProvider;
+
+// @public
+export function autoDeny(note?: string): ApprovalProvider;
 
 // @public (undocumented)
 export type BudgetConfig = z.infer<typeof BudgetConfigSchema>;
@@ -165,6 +214,12 @@ export interface CapabilityManifest {
 }
 
 // @public
+export interface CapabilityPolicy {
+    // (undocumented)
+    evaluate(request: PolicyRequest): PolicyDecision;
+}
+
+// @public
 export class CapabilityRouter {
     constructor(opts: CapabilityRouterOptions);
     allManifests(): CapabilityManifest[];
@@ -252,6 +307,12 @@ export class CognitiveOverloadError extends AgentRuntimeError {
     readonly limit: number;
     // (undocumented)
     readonly stepsExecuted: number;
+}
+
+// @public
+export class CompositePolicy implements CapabilityPolicy {
+    constructor(policies: readonly CapabilityPolicy[]);
+    evaluate(request: PolicyRequest): PolicyDecision;
 }
 
 // @public
@@ -352,10 +413,22 @@ export function createAgentRunner(brain: ThoughtProcess, catalogue: ToolkitCatal
 }): AgentRunner;
 
 // @public
+export function createApprovalProvider(requestApproval: (request: ApprovalRequest) => Promise<ApprovalResult>): ApprovalProvider;
+
+// @public
+export function createCapabilityPolicy(evaluate: (request: PolicyRequest) => PolicyDecision): CapabilityPolicy;
+
+// @public
 export function createCertifiedEnvelope(intent: ToolCallRequest, overrides?: Partial<CertifiedContractEnvelope>): CertifiedContractEnvelope;
 
 // @public
+export function createCompositePolicy(policies: readonly CapabilityPolicy[]): CompositePolicy;
+
+// @public
 export function createDefaultDigestionPipeline(brain: ThoughtProcess, schedule: RequestSchedule): DigestionPipeline;
+
+// @public
+export function createGrantLevelPolicy(config?: GrantLevelPolicyConfig): GrantLevelPolicy;
 
 // @public
 export function createOllamaThoughtProcess(baseUrl: string, modelAlias: string, defaults?: ThoughtPortConfig["defaults"]): OllamaThoughtProcess;
@@ -685,8 +758,26 @@ export class GateSaturatedError extends AgentRuntimeError {
     constructor(label: string, maxDepth: number);
 }
 
+// @public
+export const GRANT_LEVEL_RANK: Record<GrantLevel, number>;
+
 // @public (undocumented)
 export type GrantLevel = z.infer<typeof GrantLevelSchema>;
+
+// @public
+export class GrantLevelPolicy implements CapabilityPolicy {
+    constructor(config?: GrantLevelPolicyConfig);
+    evaluate(request: PolicyRequest): PolicyDecision;
+}
+
+// @public
+export interface GrantLevelPolicyConfig {
+    allowTools?: readonly string[];
+    approvalThreshold?: GrantLevel;
+    denyTools?: readonly string[];
+    minTrustForAuto?: ServerTrust;
+    serverTrust?: Readonly<Record<string, ServerTrust>>;
+}
 
 // @public
 export const GrantLevelSchema: z.ZodEnum<["auto", "acknowledged", "acknowledged-privileged", "manual"]>;
@@ -886,6 +977,44 @@ export class OllamaThoughtProcess implements ThoughtProcess {
     get identityTag(): string;
 }
 
+// @public (undocumented)
+export const POLICY_LABEL_KEYS: {
+    readonly DECISION: "decision";
+    readonly SCOPE: "scope";
+    readonly OUTCOME: "outcome";
+};
+
+// @public (undocumented)
+export const POLICY_METRICS: {
+    readonly DECISIONS_TOTAL: "runtime_policy_decisions_total";
+    readonly APPROVALS_TOTAL: "runtime_policy_approvals_total";
+    readonly APPROVAL_TIMEOUTS_TOTAL: "runtime_policy_approval_timeouts_total";
+};
+
+// @public
+export type PolicyDecision = {
+    type: "ALLOW";
+} | {
+    type: "DENY";
+    reason: string;
+} | {
+    type: "REQUIRE_APPROVAL";
+    reason: string;
+    scope: ApprovalScope;
+};
+
+// @public
+export interface PolicyRequest {
+    // (undocumented)
+    capability: CapabilityDescriptor;
+    // (undocumented)
+    objective: string;
+    previousDenials: number;
+    // (undocumented)
+    stepIndex: number;
+    toolCall: ToolCallRequest;
+}
+
 // @public
 export type Priority = "critical" | "normal";
 
@@ -938,6 +1067,9 @@ export interface RepeatCallBinderConfig {
     maxConsecutiveIdentical?: number;
     windowSize?: number;
 }
+
+// @public
+export function requestApprovalWithTimeout(provider: ApprovalProvider, request: ApprovalRequest, timeoutMs: number): Promise<ApprovalResult>;
 
 // @public
 export interface RequestSchedule {
@@ -1189,6 +1321,15 @@ export type SealResultLabel = (typeof SEAL_RESULT_LABELS)[number];
 
 // @public (undocumented)
 export type SealViolationClass = (typeof SEAL_VIOLATION_CLASSES)[number];
+
+// @public
+export const SERVER_TRUST_LEVELS: readonly ["official", "verified", "community", "unknown"];
+
+// @public
+export const SERVER_TRUST_RANK: Record<ServerTrust, number>;
+
+// @public (undocumented)
+export type ServerTrust = (typeof SERVER_TRUST_LEVELS)[number];
 
 // @public (undocumented)
 export const SINK_METRICS: {

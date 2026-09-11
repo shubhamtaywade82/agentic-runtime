@@ -364,6 +364,31 @@ export const CAPABILITY_LABEL_KEYS = {
 } as const;
 
 // ============================================================================
+// Policy Layer (capability trust boundary)
+// ============================================================================
+
+/** Policy-layer metric names */
+/** @public */
+export const POLICY_METRICS = {
+  /** Counter: policy decisions rendered, by decision type */
+  DECISIONS_TOTAL: "runtime_policy_decisions_total",
+
+  /** Counter: approval requests resolved, by outcome */
+  APPROVALS_TOTAL: "runtime_policy_approvals_total",
+
+  /** Counter: approval requests that timed out (fail-closed denials) */
+  APPROVAL_TIMEOUTS_TOTAL: "runtime_policy_approval_timeouts_total",
+} as const;
+
+/** Policy metric label keys */
+/** @public */
+export const POLICY_LABEL_KEYS = {
+  DECISION: "decision",
+  SCOPE: "scope",
+  OUTCOME: "outcome",
+} as const;
+
+// ============================================================================
 // Canonical Envelope Schema
 // ============================================================================
 
@@ -400,6 +425,7 @@ export const ALL_METRIC_NAMES = [
   ...Object.values(SYNTHESIS_METRICS),
   ...Object.values(SINK_METRICS),
   ...Object.values(CAPABILITY_METRICS),
+  ...Object.values(POLICY_METRICS),
 ] as const;
 
 /** @public */
