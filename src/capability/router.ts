@@ -1,4 +1,4 @@
-import type { EventSink, JSONSchema7, ToolDefinition } from "../core/types.js";
+import type { EventSink, JSONSchema7, ToolDefinition, Contract } from "../core/types.js";
 import { ToolkitCatalogue, toJsonSchema } from "../hands/catalogue.js";
 import type { ResourceSentinel } from "../sentinel/index.js";
 import { CapabilityIndex } from "./capability-index.js";
@@ -105,7 +105,7 @@ export class CapabilityRouter {
       const manifest: CapabilityManifest = {
         name: tool.handle,
         description: tool.caption,
-        parametersJsonSchema: toJsonSchema(tool.argsShape),
+        parametersJsonSchema: manifestSchemaFor(tool.argsShape),
       };
       // Place first: catalogue.place runs fail-closed validation
       // (gpu-inference requires targetModelId) before anything is indexed.
@@ -119,6 +119,16 @@ export class CapabilityRouter {
       registered.push({ descriptor, manifest });
     }
     return registered;
+  }
+
+  /**
+   * Register non-tool capability descriptors (resources, prompts) into the
+   * discovery index only. They participate in selection (kind-filtered)
+   * but have no executable manifest and are never dispatched.
+   * @public
+   */
+  registerDescriptors(descriptors: readonly CapabilityDescriptor[]): void {
+    this.index.register(...descriptors);
   }
 
   /**
@@ -159,5 +169,24 @@ export class CapabilityRouter {
       }
     }
     this.index.unregisterServer(serverId);
+  }
+}
+
+/**
+ * Project a tool's argument contract into the JSON Schema used for Brain
+ * mounting. Zod-shaped contracts convert through zod-to-json-schema;
+ * contracts that already carry a JSON Schema (MCP tools, via
+ * jsonSchemaContract) project directly - no lossy round trip. Contracts
+ * that are neither (custom structural implementations) degrade to a
+ * permissive object schema; strict per-call validation still applies.
+ * @public
+ */
+export function manifestSchemaFor(argsShape: Contract<unknown>): JSONSchema7 {
+  const direct = (argsShape as { jsonSchema?: JSONSchema7 }).jsonSchema;
+  if (direct !== null && typeof direct === "object") return direct;
+  try {
+    return toJsonSchema(argsShape);
+  } catch {
+    return { type: "object" };
   }
 }

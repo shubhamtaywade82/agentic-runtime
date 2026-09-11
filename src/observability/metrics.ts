@@ -389,6 +389,33 @@ export const POLICY_LABEL_KEYS = {
 } as const;
 
 // ============================================================================
+// MCP Layer (Model Context Protocol client)
+// ============================================================================
+
+/** MCP-layer metric names */
+/** @public */
+export const MCP_METRICS = {
+  /** Counter: servers connected, by transport */
+  CONNECTED_TOTAL: "runtime_mcp_connected_total",
+
+  /** Counter: servers disconnected */
+  DISCONNECTED_TOTAL: "runtime_mcp_disconnected_total",
+
+  /** Counter: capability list-changed notifications received */
+  LIST_CHANGED_TOTAL: "runtime_mcp_list_changed_total",
+
+  /** Counter: server stderr lines forwarded (truncated payload) */
+  SERVER_STDERR_LINE: "runtime_mcp_server_stderr_line",
+} as const;
+
+/** MCP metric label keys */
+/** @public */
+export const MCP_LABEL_KEYS = {
+  SERVER: "server",
+  TRANSPORT: "transport",
+} as const;
+
+// ============================================================================
 // Canonical Envelope Schema
 // ============================================================================
 
@@ -426,6 +453,7 @@ export const ALL_METRIC_NAMES = [
   ...Object.values(SINK_METRICS),
   ...Object.values(CAPABILITY_METRICS),
   ...Object.values(POLICY_METRICS),
+  ...Object.values(MCP_METRICS),
 ] as const;
 
 /** @public */

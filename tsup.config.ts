@@ -6,6 +6,7 @@ export default defineConfig({
     "core/index": "src/core/index.ts",
     "capability/index": "src/capability/index.ts",
     "policy/index": "src/policy/index.ts",
+    "mcp/index": "src/mcp/index.ts",
     "brain/index": "src/brain/index.ts",
     "hands/index": "src/hands/index.ts",
     "memory/index": "src/memory/index.ts",

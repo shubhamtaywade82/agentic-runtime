@@ -31,12 +31,15 @@ export class AgentRuntimeError extends Error {
 }
 
 // @public (undocumented)
-export const ALL_METRIC_NAMES: readonly ("runtime_gate_wait_ms" | "runtime_gate_active" | "runtime_gate_waiting" | "runtime_gate_grants_total" | "runtime_gate_refunds_total" | "runtime_gate_saturation_total" | "runtime_inference_ms" | "runtime_tokens_prompt_total" | "runtime_tokens_eval_total" | "runtime_inference_turns_total" | "runtime_inference_truncations_total" | "runtime_tool_ms" | "runtime_tool_failures_total" | "runtime_tool_invocations_total" | "runtime_tool_bytes_transferred_total" | "runtime_run_status_total" | "runtime_run_ms" | "runtime_run_steps_total" | "runtime_run_intents_total" | "runtime_run_salvage_total" | "runtime_digestions_total" | "runtime_ctx_est_tokens" | "runtime_ctx_lane_length" | "runtime_ctx_pins_total" | "runtime_disputes_total" | "runtime_dispute_ms" | "runtime_dispute_quarantine_total" | "runtime_dispute_oscillation_total" | "runtime_seals_total" | "runtime_seal_violations_total" | "runtime_seal_ms" | "runtime_seal_reseal_attempts_total" | "runtime_sink_emitted_total" | "runtime_sink_dropped_total" | "runtime_sink_listener_errors_total" | "runtime_capability_registrations_total" | "runtime_capability_mounted_size" | "runtime_capability_forgotten_servers_total" | "runtime_policy_decisions_total" | "runtime_policy_approvals_total" | "runtime_policy_approval_timeouts_total")[];
+export const ALL_METRIC_NAMES: readonly ("runtime_gate_wait_ms" | "runtime_gate_active" | "runtime_gate_waiting" | "runtime_gate_grants_total" | "runtime_gate_refunds_total" | "runtime_gate_saturation_total" | "runtime_inference_ms" | "runtime_tokens_prompt_total" | "runtime_tokens_eval_total" | "runtime_inference_turns_total" | "runtime_inference_truncations_total" | "runtime_tool_ms" | "runtime_tool_failures_total" | "runtime_tool_invocations_total" | "runtime_tool_bytes_transferred_total" | "runtime_run_status_total" | "runtime_run_ms" | "runtime_run_steps_total" | "runtime_run_intents_total" | "runtime_run_salvage_total" | "runtime_digestions_total" | "runtime_ctx_est_tokens" | "runtime_ctx_lane_length" | "runtime_ctx_pins_total" | "runtime_disputes_total" | "runtime_dispute_ms" | "runtime_dispute_quarantine_total" | "runtime_dispute_oscillation_total" | "runtime_seals_total" | "runtime_seal_violations_total" | "runtime_seal_ms" | "runtime_seal_reseal_attempts_total" | "runtime_sink_emitted_total" | "runtime_sink_dropped_total" | "runtime_sink_listener_errors_total" | "runtime_capability_registrations_total" | "runtime_capability_mounted_size" | "runtime_capability_forgotten_servers_total" | "runtime_policy_decisions_total" | "runtime_policy_approvals_total" | "runtime_policy_approval_timeouts_total" | "runtime_mcp_connected_total" | "runtime_mcp_disconnected_total" | "runtime_mcp_list_changed_total" | "runtime_mcp_server_stderr_line")[];
 
 // @public
 export class AllowAllPolicy implements CapabilityPolicy {
     evaluate(): PolicyDecision;
 }
+
+// @public
+export function anySignal(...signals: AbortSignal[]): AbortSignal;
 
 // @public
 export const APPROVAL_SCOPES: readonly ["standard", "privileged"];
@@ -227,6 +230,7 @@ export class CapabilityRouter {
     getCatalogue(): ToolkitCatalogue;
     getIndex(): CapabilityIndex;
     manifestsFor(mounted: MountedCapabilities): CapabilityManifest[];
+    registerDescriptors(descriptors: readonly CapabilityDescriptor[]): void;
     registerNativeTools(tools: readonly ToolDefinition[]): RegisteredCapability[];
     registerTools(tools: readonly ToolDefinition[], source: CapabilitySource, serverId: string | undefined): RegisteredCapability[];
 }
@@ -301,6 +305,9 @@ export interface ChatMsg {
 }
 
 // @public
+export function coerceServerMessage(raw: unknown): JsonRpcServerMessage;
+
+// @public
 export class CognitiveOverloadError extends AgentRuntimeError {
     constructor(stepsExecuted: number, limit: number, cause?: unknown);
     // (undocumented)
@@ -344,6 +351,9 @@ export class ConcurrencyGate {
         queued: number;
     };
 }
+
+// @public
+export const CONSERVATIVE_SIDE_EFFECTS: McpServerSideEffectsDeclaration;
 
 // @public
 export interface ConstraintPayload {
@@ -552,6 +562,9 @@ export interface DisputeResolverConfig {
 export type DisputeTierLabel = (typeof DISPUTE_TIER_LABELS)[number];
 
 // @public
+export function encodeJsonRpcMessage(message: JsonRpcClientMessage | JsonRpcSuccessResponse | JsonRpcErrorResponse): string;
+
+// @public
 export interface EventSink {
     // (undocumented)
     emit(name: string, payload: Record<string, unknown>): void;
@@ -570,6 +583,9 @@ export interface ExecutionStep {
     // (undocumented)
     toolResults: ToolResult[];
 }
+
+// @public
+export function extractMcpOutput(content: readonly McpContent[], structuredContent: Record<string, unknown> | undefined): unknown;
 
 // @public
 export const FENCE_ESCAPE_PATTERN: RegExp;
@@ -765,6 +781,9 @@ export const GRANT_LEVEL_RANK: Record<GrantLevel, number>;
 export type GrantLevel = z.infer<typeof GrantLevelSchema>;
 
 // @public
+export function grantLevelForMcpTool(annotations: McpTool["annotations"], trust: ServerTrust): "auto" | "acknowledged" | "manual";
+
+// @public
 export class GrantLevelPolicy implements CapabilityPolicy {
     constructor(config?: GrantLevelPolicyConfig);
     evaluate(request: PolicyRequest): PolicyDecision;
@@ -866,6 +885,76 @@ export function isRunAbortedError(err: unknown): err is RunAbortedError;
 export function isTransientTransport(err: unknown): boolean;
 
 // @public
+export type JsonRpcClientMessage = JsonRpcRequest | JsonRpcNotification;
+
+// @public
+export interface JsonRpcErrorResponse {
+    // (undocumented)
+    error: {
+        code: number;
+        message: string;
+        data?: unknown;
+    };
+    // (undocumented)
+    id: number | string | null;
+    // (undocumented)
+    jsonrpc: "2.0";
+}
+
+// @public
+export function jsonRpcErrorResponse(id: number | string, code: number, message: string): JsonRpcErrorResponse;
+
+// @public
+export interface JsonRpcNotification {
+    // (undocumented)
+    jsonrpc: "2.0";
+    // (undocumented)
+    method: string;
+    // (undocumented)
+    params?: Record<string, unknown>;
+}
+
+// @public
+export interface JsonRpcRequest {
+    // (undocumented)
+    id: number | string;
+    // (undocumented)
+    jsonrpc: "2.0";
+    // (undocumented)
+    method: string;
+    // (undocumented)
+    params?: Record<string, unknown>;
+}
+
+// @public
+export type JsonRpcServerMessage = JsonRpcSuccessResponse | JsonRpcErrorResponse | JsonRpcServerRequest | JsonRpcNotification;
+
+// @public
+export interface JsonRpcServerRequest {
+    // (undocumented)
+    id: number | string;
+    // (undocumented)
+    jsonrpc: "2.0";
+    // (undocumented)
+    method: string;
+    // (undocumented)
+    params?: Record<string, unknown>;
+}
+
+// @public
+export interface JsonRpcSuccessResponse {
+    // (undocumented)
+    id: number | string;
+    // (undocumented)
+    jsonrpc: "2.0";
+    // (undocumented)
+    result: unknown;
+}
+
+// @public
+export function jsonRpcSuccessResponse(id: number | string, result: unknown): JsonRpcSuccessResponse;
+
+// @public
 export interface JSONSchema7 {
     // (undocumented)
     [key: string]: unknown;
@@ -875,6 +964,19 @@ export interface JSONSchema7 {
     required?: string[];
     // (undocumented)
     type?: string;
+}
+
+// @public
+export function jsonSchemaContract(schema: JSONSchema7 | undefined): Contract<Record<string, unknown>> & {
+    jsonSchema?: JSONSchema7;
+};
+
+// @public
+export interface JsonSchemaIssue {
+    // (undocumented)
+    message: string;
+    // (undocumented)
+    path: (string | number)[];
 }
 
 // @public (undocumented)
@@ -887,7 +989,328 @@ export interface Logger {
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 // @public
+export function manifestSchemaFor(argsShape: Contract<unknown>): JSONSchema7;
+
+// @public
 export const MAX_SEAL_ATTEMPTS = 2;
+
+// @public
+export const MCP_CLIENT_INFO: {
+    readonly name: "@nemesis-oss/agentic-runtime";
+    readonly version: "0.2.0";
+};
+
+// @public (undocumented)
+export const MCP_LABEL_KEYS: {
+    readonly SERVER: "server";
+    readonly TRANSPORT: "transport";
+};
+
+// @public (undocumented)
+export const MCP_METRICS: {
+    readonly CONNECTED_TOTAL: "runtime_mcp_connected_total";
+    readonly DISCONNECTED_TOTAL: "runtime_mcp_disconnected_total";
+    readonly LIST_CHANGED_TOTAL: "runtime_mcp_list_changed_total";
+    readonly SERVER_STDERR_LINE: "runtime_mcp_server_stderr_line";
+};
+
+// @public
+export class McpClient {
+    constructor(opts: McpClientOptions);
+    callTool(name: string, args: Record<string, unknown>, opts?: {
+        signal?: AbortSignal;
+        timeoutMs?: number;
+    }): Promise<McpToolCallResult>;
+    close(): Promise<void>;
+    connect(): Promise<McpServerInfo>;
+    getPrompt(name: string, args?: Record<string, string>): Promise<McpPromptMessage[]>;
+    get info(): McpServerInfo | undefined;
+    get isConnected(): boolean;
+    listPrompts(): Promise<McpPrompt[]>;
+    listResources(): Promise<McpResource[]>;
+    listTools(): Promise<McpTool[]>;
+    readResource(uri: string, opts?: {
+        signal?: AbortSignal;
+    }): Promise<McpResourceContents[]>;
+    get serverCapabilities(): McpServerCapabilities | undefined;
+}
+
+// @public
+export interface McpClientOptions {
+    onCapabilitiesChanged?: (serverId: string) => void;
+    onToolsChanged?: (serverId: string) => void;
+    protocolVersion?: string;
+    requestTimeoutMs?: number;
+    // (undocumented)
+    serverId: string;
+    // (undocumented)
+    sink?: EventSink;
+    // (undocumented)
+    transport: McpTransport;
+}
+
+// @public
+export class McpConfigError extends AgentRuntimeError {
+    constructor(message: string);
+}
+
+// @public
+export type McpContent = {
+    type: "text";
+    text: string;
+} | {
+    type: "image";
+    data: string;
+    mimeType: string;
+} | {
+    type: "audio";
+    data: string;
+    mimeType: string;
+} | {
+    type: "resource";
+    resource: {
+        uri: string;
+        mimeType?: string;
+        text?: string;
+        blob?: string;
+    };
+} | {
+    type: "resource_link";
+    uri: string;
+    name?: string;
+    mimeType?: string;
+};
+
+// @public
+export interface McpPrompt {
+    // (undocumented)
+    arguments?: Array<{
+        name: string;
+        description?: string;
+        required?: boolean;
+    }>;
+    // (undocumented)
+    description?: string;
+    // (undocumented)
+    name: string;
+}
+
+// @public
+export interface McpPromptMessage {
+    // (undocumented)
+    content: McpContent;
+    // (undocumented)
+    role: "user" | "assistant";
+}
+
+// @public
+export class McpProtocolError extends AgentRuntimeError {
+    constructor(message: string, opts?: {
+        rpcCode?: number;
+        rpcData?: unknown;
+        cause?: unknown;
+    });
+    readonly rpcCode?: number;
+    readonly rpcData?: unknown;
+}
+
+// @public
+export interface McpResource {
+    // (undocumented)
+    description?: string;
+    // (undocumented)
+    mimeType?: string;
+    // (undocumented)
+    name?: string;
+    // (undocumented)
+    uri: string;
+}
+
+// @public
+export interface McpResourceContents {
+    blob?: string;
+    // (undocumented)
+    mimeType?: string;
+    text?: string;
+    // (undocumented)
+    uri: string;
+}
+
+// @public
+export interface McpServerCapabilities {
+    // (undocumented)
+    completions?: Record<string, unknown>;
+    // (undocumented)
+    logging?: Record<string, unknown>;
+    // (undocumented)
+    prompts?: {
+        listChanged?: boolean;
+    };
+    // (undocumented)
+    resources?: {
+        subscribe?: boolean;
+        listChanged?: boolean;
+    };
+    // (undocumented)
+    tools?: {
+        listChanged?: boolean;
+    };
+}
+
+// @public
+export interface McpServerConfig {
+    // (undocumented)
+    args?: string[];
+    // (undocumented)
+    command?: string;
+    // (undocumented)
+    cwd?: string;
+    // (undocumented)
+    env?: Record<string, string>;
+    // (undocumented)
+    headers?: Record<string, string>;
+    // (undocumented)
+    requestTimeoutMs?: number;
+    // (undocumented)
+    serverId: string;
+    // (undocumented)
+    sideEffects?: McpServerSideEffectsDeclaration;
+    // (undocumented)
+    toolNamePrefix?: string | null;
+    // (undocumented)
+    transport: "stdio" | "http";
+    // (undocumented)
+    trust?: ServerTrust;
+    // (undocumented)
+    url?: string;
+}
+
+// @public
+export interface McpServerInfo {
+    // (undocumented)
+    name: string;
+    protocolVersion: string;
+    // (undocumented)
+    version?: string;
+}
+
+// @public
+export class McpServerRegistry {
+    constructor(opts?: McpServerRegistryOptions);
+    clientOf(serverId: string): McpClient | undefined;
+    connect(config: McpServerConfig): Promise<RegisteredMcpServer>;
+    disconnect(serverId: string): Promise<void>;
+    disconnectAll(): Promise<void>;
+    get(serverId: string): RegisteredMcpServer | undefined;
+    list(): RegisteredMcpServer[];
+    refresh(serverId: string): Promise<RegisteredMcpServer>;
+    sideEffectsOf(serverId: string): McpServerSideEffectsDeclaration;
+    toolNamePrefixOf(serverId: string): string | null;
+    trustMap(): Record<string, ServerTrust>;
+    trustOf(serverId: string): ServerTrust;
+}
+
+// @public
+export interface McpServerRegistryOptions {
+    defaultTrust?: ServerTrust;
+    // (undocumented)
+    sink?: EventSink;
+}
+
+// @public
+export interface McpServerSideEffectsDeclaration {
+    // (undocumented)
+    database: boolean;
+    externalMutation: boolean;
+    // (undocumented)
+    filesystem: boolean;
+    // (undocumented)
+    network: boolean;
+    // (undocumented)
+    process: boolean;
+}
+
+// @public
+export class McpTimeoutError extends AgentRuntimeError {
+    constructor(method: string, timeoutMs: number);
+}
+
+// @public
+export interface McpTool {
+    // (undocumented)
+    annotations?: McpToolAnnotations;
+    // (undocumented)
+    description?: string;
+    // (undocumented)
+    inputSchema?: JSONSchema7;
+    // (undocumented)
+    name: string;
+}
+
+// @public
+export interface McpToolAdapterOptions {
+    callTimeoutMs?: number;
+    // (undocumented)
+    client: McpClient;
+    // (undocumented)
+    serverId: string;
+    // (undocumented)
+    serverVersion?: string;
+    // (undocumented)
+    sideEffects: McpServerSideEffectsDeclaration;
+    toolNamePrefix?: string;
+    // (undocumented)
+    trust: ServerTrust;
+}
+
+// @public
+export interface McpToolAnnotations {
+    // (undocumented)
+    destructiveHint?: boolean;
+    // (undocumented)
+    idempotentHint?: boolean;
+    // (undocumented)
+    openWorldHint?: boolean;
+    // (undocumented)
+    readOnlyHint?: boolean;
+    // (undocumented)
+    title?: string;
+}
+
+// @public
+export interface McpToolCallResult {
+    // (undocumented)
+    content: McpContent[];
+    isError?: boolean;
+    structuredContent?: Record<string, unknown>;
+}
+
+// @public
+export function mcpToolsToToolDefinitions(tools: readonly McpTool[], opts: McpToolAdapterOptions): ToolDefinition<Record<string, unknown>>[];
+
+// @public
+export interface McpTransport {
+    // (undocumented)
+    close(): Promise<void>;
+    // (undocumented)
+    readonly kind: "stdio" | "http";
+    // (undocumented)
+    send(message: JsonRpcClientMessage | JsonRpcSuccessResponse | JsonRpcErrorResponse, signal?: AbortSignal): Promise<void>;
+    // (undocumented)
+    start(listeners: McpTransportListeners): Promise<void>;
+}
+
+// @public
+export class McpTransportError extends AgentRuntimeError {
+    constructor(message: string, cause?: unknown);
+}
+
+// @public
+export interface McpTransportListeners {
+    onMessage: (message: JsonRpcServerMessage) => void;
+    onTransportClosed?: (hadError: boolean) => void;
+    onTransportError?: (error: Error) => void;
+}
 
 // @public (undocumented)
 export const MEMORY_METRICS: {
@@ -977,6 +1400,9 @@ export class OllamaThoughtProcess implements ThoughtProcess {
     get identityTag(): string;
 }
 
+// @public
+export function parseJsonRpcMessage(line: string): JsonRpcServerMessage;
+
 // @public (undocumented)
 export const POLICY_LABEL_KEYS: {
     readonly DECISION: "decision";
@@ -1028,6 +1454,31 @@ export type PriorityLabel = (typeof PRIORITY_LABELS)[number];
 export type Progress = z.infer<typeof ProgressSchema>;
 
 // @public
+export class ProgressiveDiscovery {
+    constructor(opts: ProgressiveDiscoveryOptions);
+    close(): Promise<void>;
+    connectServer(config: McpServerConfig): Promise<RegisteredMcpServer>;
+    disconnectServer(serverId: string): Promise<void>;
+    getRegistry(): McpServerRegistry;
+    manifestsFor(objective: string, context?: readonly ChatMsg[]): Promise<{
+        mounted: MountedCapabilities;
+        manifests: CapabilityManifest[];
+    }>;
+    refreshServer(serverId: string): Promise<RegisteredMcpServer>;
+    selectFor(objective: string, context?: readonly ChatMsg[]): Promise<MountedCapabilities>;
+}
+
+// @public
+export interface ProgressiveDiscoveryOptions {
+    callTimeoutMs?: number;
+    // (undocumented)
+    registry: McpServerRegistry;
+    // (undocumented)
+    router: CapabilityRouter;
+    selector?: CapabilitySelector;
+}
+
+// @public
 export const ProgressSchema: z.ZodObject<{
     doneTasks: z.ZodNumber;
     totalKnownTasks: z.ZodNullable<z.ZodNumber>;
@@ -1048,6 +1499,24 @@ export interface RegisteredCapability {
     descriptor: CapabilityDescriptor;
     // (undocumented)
     manifest: CapabilityManifest;
+}
+
+// @public
+export interface RegisteredMcpServer {
+    // (undocumented)
+    capabilities: McpServerCapabilities;
+    // (undocumented)
+    config: McpServerConfig;
+    // (undocumented)
+    prompts: McpPrompt[];
+    // (undocumented)
+    resources: McpResource[];
+    // (undocumented)
+    serverId: string;
+    // (undocumented)
+    serverInfo: McpServerInfo;
+    // (undocumented)
+    tools: McpTool[];
 }
 
 // @public
@@ -1125,6 +1594,9 @@ export type ResolutionPlan = {
 
 // @public (undocumented)
 export type ResourceClass = z.infer<typeof ResourceClassSchema>;
+
+// @public
+export function resourceClassForMcpTool(sideEffects: McpServerSideEffectsDeclaration, annotations: McpTool["annotations"]): ResourceClass;
 
 // @public
 export const ResourceClassSchema: z.ZodEnum<["local-cpu", "local-gpu", "gpu-inference", "local-sandbox", "external-network", "external-database", "filesystem-read", "filesystem-write"]>;
@@ -1345,6 +1817,56 @@ export const SMART_LIMIT_BYTES = 48000;
 export class StaticCapabilitySelector implements CapabilitySelector {
     select(input: CapabilitySelectionInput): Promise<MountedCapabilities>;
 }
+
+// @public
+export class StdioTransport implements McpTransport {
+    constructor(opts: StdioTransportOptions);
+    close(): Promise<void>;
+    get consumedFrames(): number;
+    // (undocumented)
+    readonly kind: "stdio";
+    get malformedFrames(): number;
+    send(message: JsonRpcClientMessage | JsonRpcSuccessResponse | JsonRpcErrorResponse, _signal?: AbortSignal): Promise<void>;
+    start(listeners: McpTransportListeners): Promise<void>;
+}
+
+// @public
+export interface StdioTransportOptions {
+    // (undocumented)
+    args?: string[];
+    closeGraceMs?: number;
+    // (undocumented)
+    command: string;
+    // (undocumented)
+    cwd?: string;
+    // (undocumented)
+    env?: Record<string, string>;
+    onStderrLine?: (line: string) => void;
+}
+
+// @public
+export class StreamableHttpTransport implements McpTransport {
+    constructor(opts: StreamableHttpTransportOptions);
+    close(): Promise<void>;
+    // (undocumented)
+    readonly kind: "http";
+    send(message: JsonRpcClientMessage | JsonRpcSuccessResponse | JsonRpcErrorResponse, signal?: AbortSignal): Promise<void>;
+    get session(): string | undefined;
+    start(listeners: McpTransportListeners): Promise<void>;
+}
+
+// @public
+export interface StreamableHttpTransportOptions {
+    fetchImpl?: typeof fetch;
+    // (undocumented)
+    headers?: Record<string, string>;
+    requestTimeoutMs?: number;
+    // (undocumented)
+    url: string;
+}
+
+// @public
+export const SUPPORTED_MCP_PROTOCOL_VERSIONS: readonly ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 // @public (undocumented)
 export const SYNTHESIS_LABEL_KEYS: {

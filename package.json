@@ -10,6 +10,7 @@
     "./core": "./dist/core/index.js",
     "./capability": "./dist/capability/index.js",
     "./policy": "./dist/policy/index.js",
+    "./mcp": "./dist/mcp/index.js",
     "./brain": "./dist/brain/index.js",
     "./hands": "./dist/hands/index.js",
     "./memory": "./dist/memory/index.js",
