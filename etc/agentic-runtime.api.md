@@ -24,9 +24,14 @@ export class AgentRunner {
         router?: ModelRouter;
         laneMode?: "replace" | "append";
         sink?: EventSink;
+        onToken?: ((delta: string) => void) | undefined;
+        onThinking?: ((delta: string) => void) | undefined;
     });
     getAbortController(): AbortController;
-    run(objective: string): Promise<RunResult>;
+    run(objective: string, runOpts?: {
+        onToken?: ((delta: string) => void) | undefined;
+        onThinking?: ((delta: string) => void) | undefined;
+    }): Promise<RunResult>;
 }
 
 // @public
@@ -55,6 +60,10 @@ export interface AgentRunnerOptions {
     limits?: Partial<RunBudgets>;
     // (undocumented)
     memory?: ContextManager;
+    // (undocumented)
+    onThinking?: ((delta: string) => void) | undefined;
+    // (undocumented)
+    onToken?: ((delta: string) => void) | undefined;
     // (undocumented)
     policy?: CapabilityPolicy;
     // (undocumented)
@@ -1559,11 +1568,17 @@ export class OllamaThoughtProcess implements ThoughtProcess {
     constructor(cfg: ThoughtPortConfig | {
         client: OllamaClient | any;
         model?: string;
+        onToken?: ((delta: string) => void) | undefined;
+        onThinking?: ((delta: string) => void) | undefined;
     }, modelAlias?: string);
     // (undocumented)
     digest(messages: ChatMsg[], schedule: RequestSchedule): Promise<AssistantTurn>;
     // (undocumented)
     get identityTag(): string;
+    // (undocumented)
+    setOnThinking(fn?: ((delta: string) => void) | undefined): void;
+    // (undocumented)
+    setOnToken(fn?: ((delta: string) => void) | undefined): void;
 }
 
 // @public
@@ -1718,6 +1733,10 @@ export interface RequestSchedule {
     killSwitch: AbortSignal;
     // (undocumented)
     mounting?: MountedTools;
+    // (undocumented)
+    onThinking?: ((delta: string) => void) | undefined;
+    // (undocumented)
+    onToken?: ((delta: string) => void) | undefined;
     // (undocumented)
     transcriptDigest?: string;
     // (undocumented)
@@ -2101,6 +2120,8 @@ export interface ThoughtPortConfig {
         idleLiveSeconds?: number;
         timeoutMs?: number;
         retries?: number;
+        onToken?: ((delta: string) => void) | undefined;
+        onThinking?: ((delta: string) => void) | undefined;
     };
     // (undocumented)
     verbose?: Logger;

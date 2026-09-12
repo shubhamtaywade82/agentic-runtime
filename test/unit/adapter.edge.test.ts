@@ -200,4 +200,37 @@ describe("OllamaThoughtProcess - Edge Cases & Internal Logic", () => {
     await expect(tp.digest([{ role: "user", content: "hi" }], { killSwitch: controller.signal } as any))
       .rejects.toThrow("Inference aborted by kill switch");
   });
+
+  it("should stream tokens via onToken callback", async () => {
+    const tp = createOllamaThoughtProcess(baseUrl, model);
+    const fakeEvents = [
+      { type: "token", data: { delta: "Hello" } },
+      { type: "token", data: { delta: " world" } },
+    ];
+    const fakeStream = {
+      async *[Symbol.asyncIterator]() {
+        for (const evt of fakeEvents) {
+          yield evt;
+        }
+      },
+      finalResult: Promise.resolve({
+        message: { role: "assistant", content: "Hello world" },
+        done: true,
+        doneReason: "stop",
+        usage: { promptTokens: 5, completionTokens: 2 },
+      }),
+    };
+
+    vi.spyOn((tp as any).remote, "chat").mockResolvedValue(fakeStream);
+
+    const receivedTokens: string[] = [];
+    const turn = await tp.digest([{ role: "user", content: "hi" }], {
+      killSwitch: new AbortController().signal,
+      onToken: (delta: string) => receivedTokens.push(delta),
+    } as any);
+
+    expect(receivedTokens).toEqual(["Hello", " world"]);
+    expect(turn.content).toBe("Hello world");
+    expect(turn.finishTag).toBe("stop");
+  });
 });

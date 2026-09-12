@@ -80,18 +80,24 @@ export class OllamaThoughtProcess implements ThoughtProcess {
   private remote: OllamaClient;
   private readonly modelAlias: string;
   private readonly defaults: NonNullable<ThoughtPortConfig["defaults"]>;
+  private onToken?: ((delta: string) => void) | undefined;
+  private onThinking?: ((delta: string) => void) | undefined;
 
   constructor(
-    cfg: ThoughtPortConfig | { client: OllamaClient | any; model?: string },
+    cfg: ThoughtPortConfig | { client: OllamaClient | any; model?: string; onToken?: ((delta: string) => void) | undefined; onThinking?: ((delta: string) => void) | undefined },
     modelAlias?: string,
   ) {
     if ("client" in cfg) {
       this.remote = cfg.client;
       this.modelAlias = cfg.model ?? (cfg.client as any).model ?? "openbmb/minicpm5-2b";
       this.defaults = {};
+      this.onToken = cfg.onToken;
+      this.onThinking = cfg.onThinking;
     } else {
       this.modelAlias = modelAlias!;
       this.defaults = cfg.defaults ?? {};
+      this.onToken = this.defaults.onToken;
+      this.onThinking = this.defaults.onThinking;
       const clientConfig: Record<string, unknown> = {
         baseUrl: cfg.baseUrl,
         timeoutMs: this.defaults.timeoutMs ?? 60_000,
@@ -99,6 +105,51 @@ export class OllamaThoughtProcess implements ThoughtProcess {
       };
       this.remote = new OllamaClient(clientConfig as Record<string, unknown>);
     }
+  }
+
+  setOnToken(fn?: ((delta: string) => void) | undefined): void {
+    this.onToken = fn;
+  }
+
+  setOnThinking(fn?: ((delta: string) => void) | undefined): void {
+    this.onThinking = fn;
+  }
+
+  private async streamChat(
+    payload: Record<string, unknown>,
+    opts: {
+      abortSignal: AbortSignal;
+      aborted: () => boolean;
+      onToken?: ((delta: string) => void) | undefined;
+      onThinking?: ((delta: string) => void) | undefined;
+    },
+  ): Promise<SDKChatResponse> {
+    payload.stream = true;
+    const stream = await (this.remote as any).chat(payload);
+    for await (const event of stream) {
+      if (opts.aborted() || opts.abortSignal.aborted) {
+        stream.abort?.();
+        throw new RunAbortedError("Inference aborted by kill switch");
+      }
+      if (event.type === "token" && event.data?.delta && opts.onToken) {
+        opts.onToken(event.data.delta);
+      } else if (event.type === "thinking" && event.data?.delta && opts.onThinking) {
+        opts.onThinking(event.data.delta);
+      }
+    }
+    const finalRes = await stream.finalResult;
+    return {
+      message: finalRes.message,
+      done: finalRes.done,
+      done_reason: finalRes.doneReason,
+      prompt_eval_count: finalRes.usage?.promptTokens ?? finalRes.raw?.prompt_eval_count,
+      eval_count: finalRes.usage?.completionTokens ?? finalRes.raw?.eval_count,
+      model: finalRes.model,
+      total_duration: finalRes.raw?.total_duration,
+      load_duration: finalRes.raw?.load_duration,
+      prompt_eval_duration: finalRes.raw?.prompt_eval_duration,
+      eval_duration: finalRes.raw?.eval_duration,
+    } as unknown as SDKChatResponse;
   }
 
   get identityTag(): string {
@@ -169,17 +220,27 @@ export class OllamaThoughtProcess implements ThoughtProcess {
       // after the response arrived, so in-flight inference was unkillable).
       payload.signal = abortSignal;
 
-      // Call SDK - cast payload to satisfy SDK overloads
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const response = await this.remote.chat(payload as any);
+      let r: SDKChatResponse;
+      const isSealPhase = schedule.constrain !== undefined;
+      const onToken = schedule.onToken ?? this.onToken;
+      const onThinking = schedule.onThinking ?? this.onThinking;
+      if (onToken && !isSealPhase) {
+        r = await this.streamChat(payload, {
+          abortSignal,
+          aborted: () => aborted,
+          onToken,
+          onThinking,
+        });
+      } else {
+        payload.stream = false;
+        const response = await this.remote.chat(payload as any);
+        r = response as unknown as SDKChatResponse;
+      }
       
       // Double check abort signal after the potentially long async call
       if (aborted || abortSignal.aborted) {
         throw new RunAbortedError("Inference aborted by kill switch");
       }
-      
-      // Handle response with type assertions for SDK version flexibility
-      const r = response as unknown as SDKChatResponse;
       
       // The assistant message is the response's `message` field (SDK 1.x
       // ChatResponse shape).

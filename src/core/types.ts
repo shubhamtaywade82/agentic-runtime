@@ -684,6 +684,8 @@ export interface RequestSchedule {
   upperBoundTokenCount?: number;
   killSwitch: AbortSignal;
   transcriptDigest?: string;
+  onToken?: ((delta: string) => void) | undefined;
+  onThinking?: ((delta: string) => void) | undefined;
 }
 
 /**
@@ -715,6 +717,8 @@ export interface ThoughtPortConfig {
     idleLiveSeconds?: number;
     timeoutMs?: number;
     retries?: number;
+    onToken?: ((delta: string) => void) | undefined;
+    onThinking?: ((delta: string) => void) | undefined;
   };
   verbose?: Logger;
 }

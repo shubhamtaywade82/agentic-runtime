@@ -59,12 +59,12 @@ function makeRunner(
  * Brain script that distinguishes loop calls from seal calls via the
  * grammar constraint: only the seal schedule carries `constrain`.
  */
-function loopThenSeal(loop: () => ReturnType<typeof assistantTurn>, seal?: string) {
+function loopThenSeal(loop: (call?: any) => ReturnType<typeof assistantTurn>, seal?: string) {
   return (call: { schedule: { constrain?: unknown } }) => {
     if (call.schedule.constrain !== undefined) {
       return assistantTurn({ content: seal ?? modelReportJson() });
     }
-    return loop();
+    return loop(call);
   };
 }
 
@@ -337,5 +337,24 @@ describe("AgentRunner - audit regressions (Wave 2)", () => {
     const sealPrompt =
       brain.calls[brain.calls.length - 1]?.messages.map((m) => m.content).join("\n") ?? "";
     expect(sealPrompt).toMatch(/step budget|CognitiveOverload|exhaust/i);
+  });
+
+  it("forwards onToken callback to inference schedule", async () => {
+    const tokens: string[] = [];
+    const brain = createScriptedBrain(
+      loopThenSeal((call) => {
+        call.schedule.onToken?.("token-1");
+        return assistantTurn({ content: "done", finishTag: "stop" });
+      }),
+    );
+    const runner = new AgentRunner({
+      brain,
+      onToken: (t) => tokens.push(t),
+    });
+
+    const res = await runner.run("Say hello");
+    expect(res.status).toBe("ACHIEVED");
+    expect(tokens).toEqual(["token-1"]);
+    expect(brain.calls[0]?.schedule.onToken).toBeDefined();
   });
 });

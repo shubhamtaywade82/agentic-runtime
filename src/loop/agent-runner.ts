@@ -134,6 +134,8 @@ export interface AgentRunnerOptions {
   router?: ModelRouter;
   laneMode?: "replace" | "append";
   sink?: EventSink;
+  onToken?: ((delta: string) => void) | undefined;
+  onThinking?: ((delta: string) => void) | undefined;
 }
 
 /**
@@ -187,6 +189,8 @@ export class AgentRunner {
   private currentObjective = "";
   private lastMountedCount = 0;
   private readonly runId = crypto.randomUUID();
+  private onToken?: ((delta: string) => void) | undefined;
+  private onThinking?: ((delta: string) => void) | undefined;
 
   constructor(
     brainOrOptions: ThoughtProcess | AgentRunnerOptions,
@@ -206,11 +210,15 @@ export class AgentRunner {
       router?: ModelRouter;
       laneMode?: "replace" | "append";
       sink?: EventSink;
+      onToken?: ((delta: string) => void) | undefined;
+      onThinking?: ((delta: string) => void) | undefined;
     },
   ) {
     if ("brain" in brainOrOptions) {
       const opts = brainOrOptions;
       this.brain = opts.brain;
+      this.onToken = opts.onToken;
+      this.onThinking = opts.onThinking;
       const hands = opts.hands;
       if (hands instanceof ToolkitCatalogue) {
         this.catalogue = hands;
@@ -253,6 +261,8 @@ export class AgentRunner {
       this.sink = cfg.sink ?? { emit: () => {} };
       this.configSealer = cfg.sealer ?? null;
       this.sealer = cfg.sealer ?? (cfg.router === undefined ? new SynthesisEngine(this.brain) : null);
+      this.onToken = cfg.onToken;
+      this.onThinking = cfg.onThinking;
     }
     this.killSwitch = new AbortController();
     this.startTime = performance.now();
@@ -267,9 +277,21 @@ export class AgentRunner {
    * Every call terminates with exactly one sealed FinalReport.
    * @public
    */
-  async run(objective: string): Promise<RunResult> {
+  async run(
+    objective: string,
+    runOpts?: {
+      onToken?: ((delta: string) => void) | undefined;
+      onThinking?: ((delta: string) => void) | undefined;
+    },
+  ): Promise<RunResult> {
+    const prevOnToken = this.onToken;
+    const prevOnThinking = this.onThinking;
+    if (runOpts?.onToken !== undefined) this.onToken = runOpts.onToken;
+    if (runOpts?.onThinking !== undefined) this.onThinking = runOpts.onThinking;
+
     this.currentObjective = objective;
-    if (this.laneMode === "append") {
+    try {
+      if (this.laneMode === "append") {
       // Session continuity: prior lane content (charter, history) survives;
       // the objective is appended as the newest user turn.
       this.contextManager.append({ role: "user", content: objective });
@@ -459,6 +481,10 @@ export class AgentRunner {
       intentsDispatched: this.intentsDispatched,
       report: reportText,
     };
+    } finally {
+      this.onToken = prevOnToken;
+      this.onThinking = prevOnThinking;
+    }
   }
 
   /**
@@ -632,6 +658,8 @@ export class AgentRunner {
       upperBoundTokenCount: this.budgets.maxTokensPerStep,
       killSwitch: this.killSwitch.signal,
       transcriptDigest: `run-${this.runId}-step-${stepIndex}`,
+      onToken: this.onToken,
+      onThinking: this.onThinking,
     };
   }
 
